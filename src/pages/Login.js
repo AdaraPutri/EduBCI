@@ -45,6 +45,15 @@ export function Login() {
         loading={isLoggingIn}
         footerComponent={<Footer />}
       />
+      <div className="row" style={{ marginTop: "12px" }}>
+        <button
+          type="button"
+          className="card-btn"
+          onClick={() => navigate("/textreader")}
+        >
+          Continue without login (Text Reader Demo)
+        </button>
+      </div>
     </main>
   );
 }
