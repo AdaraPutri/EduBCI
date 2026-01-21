@@ -15,7 +15,8 @@ import { Login } from "./pages/Login";
 import { Logout } from "./pages/Logout";
 import { Calm } from "./pages/Calm";
 import { useNeurosity } from "./services/neurosity";
-import { TextReader } from "./pages/TextReader";
+import { ReadingExperiment } from "./pages/ReadingExperiment";
+
 
 const neurosity = new Neurosity({
   autoReconnect: true,
@@ -73,7 +74,14 @@ export function App() {
           />
           <Route path="/login" element={<Login />} />
           <Route path="/logout" element={<Logout />} />
-          <Route path="/textreader" element={<TextReader />} />
+          <Route
+            path="/experiment"
+            element={
+              <RequireAuth>
+                <ReadingExperiment />
+              </RequireAuth>
+            }
+          />
         </Routes>
       </BrowserRouter>
     </ProvideNeurosity>

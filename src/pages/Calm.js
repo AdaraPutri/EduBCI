@@ -33,8 +33,16 @@ export function Calm() {
   return (
     <main className="main-container">
       {user ? <Nav /> : null}
+
       <div className="calm-score">
         &nbsp;{calm}% <div className="calm-word">Calm</div>
+      </div>
+
+      {/* NEW: button to go to ReadingExperiment */}
+      <div style={{ marginTop: 20, display: "flex", justifyContent: "center" }}>
+        <button onClick={() => navigate("/experiment")}>
+          Start Reading Experiment
+        </button>
       </div>
     </main>
   );
