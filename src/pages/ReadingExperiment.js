@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from "react";
+// src/pages/ReadingExperiment.js
+
+import React, { useState, useEffect, useMemo } from "react";
 import { paragraphs } from "../data/paragraphs.js";
 import { buildParagraphsWithSentences } from "../utils/sentenceUtils.js";
+import { upsertParticipantId, appendEvent } from "../utils/storage.js";
 
 const PARAGRAPHS = buildParagraphsWithSentences(paragraphs);
 
@@ -13,46 +16,51 @@ export function ReadingExperiment() {
   const [sentenceIndex, setSentenceIndex] = useState(0);
 
   const [sentenceStart, setSentenceStart] = useState(null);
-  const [events, setEvents] = useState([]);
   const [inBreak, setInBreak] = useState(false);
 
-  const current = PARAGRAPHS[paragraphIndex];
-  const currentSentence =
-    current && current.sentences ? current.sentences[sentenceIndex] : null;
+  const [sessionId, setSessionId] = useState("");
 
-  // start timer when a new sentence appears
+  const current = PARAGRAPHS[paragraphIndex] || null;
+  const sentences = current?.sentences || [];
+  const currentSentence = sentences[sentenceIndex] || null;
+
+  // create a stable session id once we start
+  const makeSessionId = () => {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    return `sess_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  // when a new sentence becomes active, start timing it
   useEffect(() => {
     if (started && !finished && !inBreak && currentSentence) {
       setSentenceStart(Date.now());
     }
-  }, [started, finished, inBreak, currentSentence]);
+  }, [started, finished, inBreak, paragraphIndex, sentenceIndex]);
 
-  // handle key presses for marking events (1,2,3)
+  // key handler
   useEffect(() => {
     function onKeyDown(e) {
       if (!started || finished || inBreak || !currentSentence) return;
-      if (!["1", "2", "3"].includes(e.key)) return;
+      if (!["1", "2"].includes(e.key)) return;
 
-      const labelMap = {
-        "1": "neutral",
-        "2": "low confusion",
-        "3": "high confusion",
-      };
+      const labelMap = { "1": "neutral", "2": "confusion" };
       const label = labelMap[e.key];
       const now = Date.now();
 
       const newEvent = {
-        participant_id: participantId,
+        participant_id: participantId.trim(),
+        session_id: sessionId,
         paragraph_id: current.paragraphId,
         paragraph_type: current.type,
-        sentence_id: sentenceIndex + 1,
-        t_sentence_start: sentenceStart,
+        sentence_id: currentSentence.sentenceId,
+        sentence_text: currentSentence.text,
+        t_sentence_start: sentenceStart ?? now,
         t_sentence_end: now,
         key_label: label,
         t_key_press: now,
       };
 
-      setEvents((prev) => [...prev, newEvent]);
+      appendEvent(newEvent);
       advanceSentence();
     }
 
@@ -62,31 +70,30 @@ export function ReadingExperiment() {
     started,
     finished,
     inBreak,
+    participantId,
+    sessionId,
+    current,
     currentSentence,
     sentenceStart,
-    paragraphIndex,
     sentenceIndex,
-    participantId,
-    current,
+    paragraphIndex,
   ]);
 
   function advanceSentence() {
-    const isLastSentence = sentenceIndex + 1 >= current.sentences.length;
-    const isLastParagraph = paragraphIndex + 1 >= PARAGRAPHS.length;
+    const lastSentenceInParagraph = sentenceIndex + 1 >= sentences.length;
+    const lastParagraphOverall = paragraphIndex + 1 >= PARAGRAPHS.length;
 
-    if (!isLastSentence) {
+    if (!lastSentenceInParagraph) {
       setSentenceIndex((i) => i + 1);
       return;
     }
 
-    // last sentence of last paragraph -> finish
-    if (isLastParagraph) {
+    if (lastParagraphOverall) {
       setFinished(true);
-      setInBreak(false);
       return;
     }
 
-    // move to next paragraph with a break
+    // move to next paragraph with a 15s break
     setInBreak(true);
     setTimeout(() => {
       setParagraphIndex((p) => p + 1);
@@ -96,104 +103,98 @@ export function ReadingExperiment() {
   }
 
   function startExperiment() {
-    if (!participantId.trim()) return;
+    const pid = participantId.trim();
+    if (!pid) return;
+
+    upsertParticipantId(pid);
+    setSessionId(makeSessionId());
+
     setStarted(true);
     setFinished(false);
     setParagraphIndex(0);
     setSentenceIndex(0);
-    setSentenceStart(Date.now());
-    setEvents([]);
+    setInBreak(false);
   }
 
-  function downloadCSV() {
-    const header = [
-      "participant_id",
-      "paragraph_id",
-      "paragraph_type",
-      "sentence_id",
-      "t_sentence_start",
-      "t_sentence_end",
-      "key_label",
-      "t_key_press",
-    ];
-
-    const rows = events.map((e) =>
-      [
-        e.participant_id,
-        e.paragraph_id,
-        e.paragraph_type,
-        e.sentence_id,
-        e.t_sentence_start,
-        e.t_sentence_end,
-        e.key_label,
-        e.t_key_press,
-      ].join(",")
-    );
-
-    const csv = [header.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `labels_${participantId}.csv`;
-    a.click();
-
-    URL.revokeObjectURL(url);
-  }
-
+  // --- UI states ---
   if (!started) {
     return (
-      <div>
+      <div style={{ padding: 24, maxWidth: 900 }}>
         <h2>Reading Experiment</h2>
+        <p>Enter your participant ID to start. During the task, press:</p>
+        <ul>
+          <li><b>1</b> = neutral</li>
+          <li><b>2</b> = confusion</li>
+        </ul>
+
         <label>
-          Participant ID:{" "}
+          Participant ID:&nbsp;
           <input
             value={participantId}
             onChange={(e) => setParticipantId(e.target.value)}
+            style={{ padding: 8, width: 260 }}
           />
         </label>
-        <button onClick={startExperiment} disabled={!participantId}>
+        &nbsp;
+        <button onClick={startExperiment} disabled={!participantId.trim()} style={{ padding: "8px 14px" }}>
           Start
         </button>
       </div>
     );
   }
 
-  if (inBreak) {
-    return <div>Break. Next paragraph will start soon...</div>;
-  }
-
   if (finished) {
     return (
-      <div>
-        <p>Experiment finished.</p>
-        <button onClick={downloadCSV}>Download label CSV</button>
+      <div style={{ padding: 24, maxWidth: 900 }}>
+        <h2>Experiment finished</h2>
+        <p>Thanks! Your labels have been saved. Please tell the researcher you are done.</p>
+        <p>(Downloads are available from the Admin page.)</p>
       </div>
     );
   }
 
-  if (!currentSentence) {
+  if (inBreak) {
     return (
-      <div>
-        <p>Loading...</p>
+      <div style={{ padding: 24, maxWidth: 900 }}>
+        <h2>Break</h2>
+        <p>Next paragraph will start in ~15 seconds…</p>
+      </div>
+    );
+  }
+
+  if (!current || sentences.length === 0 || !currentSentence) {
+    return (
+      <div style={{ padding: 24, maxWidth: 900 }}>
+        <h2>Loading paragraph…</h2>
       </div>
     );
   }
 
   return (
-    <div>
+    <div style={{ padding: 24, maxWidth: 900 }}>
       <h3>
-        Paragraph {paragraphIndex + 1} / {PARAGRAPHS.length} ({current.type})
+        Paragraph {paragraphIndex + 1} / {PARAGRAPHS.length} &nbsp;
       </h3>
 
-      <p style={{ fontSize: 20, lineHeight: 1.6 }}>
-        {currentSentence.text}
-      </p>
+      <div style={{ fontSize: 18, lineHeight: 1.8 }}>
+        {sentences.map((s, idx) => (
+          <span
+            key={s.sentenceId}
+            style={{
+              background: idx === sentenceIndex ? "rgba(255, 235, 59, 0.5)" : "transparent",
+              padding: idx === sentenceIndex ? "2px 4px" : 0,
+              borderRadius: 4,
+              transition: "background 120ms ease",
+            }}
+          >
+            {s.text + " "}
+          </span>
+        ))}
+      </div>
 
-      <p>Press 1 = neutral, 2 = low confusion, 3 = high confusion</p>
-
-      <button onClick={downloadCSV}>Download label CSV</button>
+      <div style={{ marginTop: 16, opacity: 0.85 }}>
+        <b>Press:</b> 1 = neutral, 2 = confusion
+      </div>
     </div>
   );
 }

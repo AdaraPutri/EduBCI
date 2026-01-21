@@ -1,3 +1,4 @@
+// src/pages/Calm.js
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -10,24 +11,18 @@ export function Calm() {
   const [calm, setCalm] = useState(0);
 
   useEffect(() => {
-    if (!user) {
-      navigate("/login");
-    }
+    if (!user) navigate("/login");
   }, [user, navigate]);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
     const subscription = neurosity.calm().subscribe((calm) => {
       const calmScore = Math.trunc(calm.probability * 100);
       setCalm(calmScore);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [user]);
 
   return (
@@ -38,10 +33,12 @@ export function Calm() {
         &nbsp;{calm}% <div className="calm-word">Calm</div>
       </div>
 
-      {/* NEW: button to go to ReadingExperiment */}
-      <div style={{ marginTop: 20, display: "flex", justifyContent: "center" }}>
-        <button onClick={() => navigate("/experiment")}>
+      <div style={{ marginTop: 24, display: "flex", gap: 12, justifyContent: "center" }}>
+        <button onClick={() => navigate("/experiment")} style={{ padding: "10px 16px" }}>
           Start Reading Experiment
+        </button>
+        <button onClick={() => navigate("/admin")} style={{ padding: "10px 16px" }}>
+          Admin
         </button>
       </div>
     </main>

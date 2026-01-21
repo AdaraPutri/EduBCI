@@ -1,11 +1,6 @@
+// src/App.js
 import React, { useEffect } from "react";
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  useNavigate,
-} from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Neurosity } from "@neurosity/sdk";
 
 import { ProvideNeurosity } from "./services/neurosity";
@@ -16,7 +11,7 @@ import { Logout } from "./pages/Logout";
 import { Calm } from "./pages/Calm";
 import { useNeurosity } from "./services/neurosity";
 import { ReadingExperiment } from "./pages/ReadingExperiment";
-
+import { Admin } from "./pages/Admin";
 
 const neurosity = new Neurosity({
   autoReconnect: true,
@@ -29,18 +24,11 @@ function RequireAuth({ children }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loadingUser && !user) {
-      navigate("/login");
-    }
+    if (!loadingUser && !user) navigate("/login");
   }, [user, loadingUser, navigate]);
 
-  if (loadingUser) {
-    return <Loading />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
+  if (loadingUser) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
 
   return children;
 }
@@ -74,11 +62,21 @@ export function App() {
           />
           <Route path="/login" element={<Login />} />
           <Route path="/logout" element={<Logout />} />
+
           <Route
             path="/experiment"
             element={
               <RequireAuth>
                 <ReadingExperiment />
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/admin"
+            element={
+              <RequireAuth>
+                <Admin />
               </RequireAuth>
             }
           />
