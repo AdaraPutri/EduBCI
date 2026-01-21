@@ -1,43 +1,112 @@
 // src/pages/ReadingExperiment.js
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 
-import React, { useState, useEffect, useMemo } from "react";
 import { paragraphs } from "../data/paragraphs.js";
 import { buildParagraphsWithSentences } from "../utils/sentenceUtils.js";
-import { upsertParticipantId, appendEvent } from "../utils/storage.js";
+import { neurosity, useNeurosity } from "../services/neurosity";
 
-const PARAGRAPHS = buildParagraphsWithSentences(paragraphs);
+const CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"];
 
 export function ReadingExperiment() {
-  const [participantId, setParticipantId] = useState("");
-  const [started, setStarted] = useState(false);
-  const [finished, setFinished] = useState(false);
+  const navigate = useNavigate();
 
+  // --- neurosity device readiness ---
+  const { selectedDevice, status } = useNeurosity();
+
+  const deviceReady =
+    !!selectedDevice?.deviceId &&
+    (status?.state === "online" ||
+      status?.state === "connected" ||
+      status?.connected === true);
+
+  // --- paragraph data ---
+  const PARAGRAPHS = useMemo(() => buildParagraphsWithSentences(paragraphs), []);
   const [paragraphIndex, setParagraphIndex] = useState(0);
   const [sentenceIndex, setSentenceIndex] = useState(0);
 
-  const [sentenceStart, setSentenceStart] = useState(null);
+  const current = PARAGRAPHS[paragraphIndex];
+  const currentSentence =
+    current && current.sentences ? current.sentences[sentenceIndex] : null;
+
+  // --- experiment state ---
+  const [participantId, setParticipantId] = useState("");
+  const [started, setStarted] = useState(false);
   const [inBreak, setInBreak] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const [sentenceStart, setSentenceStart] = useState(null);
 
-  const [sessionId, setSessionId] = useState("");
+  // label events
+  const [events, setEvents] = useState([]);
 
-  const current = PARAGRAPHS[paragraphIndex] || null;
-  const sentences = current?.sentences || [];
-  const currentSentence = sentences[sentenceIndex] || null;
+  // EEG buffer (large -> ref)
+  const eegRowsRef = useRef([]);
 
-  // create a stable session id once we start
-  const makeSessionId = () => {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-    return `sess_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  };
+  // Track "current paragraph/sentence" for EEG tagging without resubscribing
+  const activeIdsRef = useRef({ paragraph_id: null, sentence_id: null });
 
-  // when a new sentence becomes active, start timing it
+  useEffect(() => {
+    activeIdsRef.current = {
+      paragraph_id: current?.paragraphId ?? null,
+      sentence_id: currentSentence?.sentenceId ?? null,
+    };
+  }, [current?.paragraphId, currentSentence?.sentenceId]);
+
+  // start timer when a new sentence appears
   useEffect(() => {
     if (started && !finished && !inBreak && currentSentence) {
       setSentenceStart(Date.now());
     }
-  }, [started, finished, inBreak, paragraphIndex, sentenceIndex]);
+  }, [started, finished, inBreak, paragraphIndex, sentenceIndex, currentSentence]);
 
-  // key handler
+  // --- EEG subscription (starts once experiment starts & device ready; stops when finished) ---
+  useEffect(() => {
+    if (!started || finished || !deviceReady) return;
+
+    const sub = neurosity.brainwaves("raw").subscribe((epoch) => {
+      const t_app = Date.now();
+      const t_device = epoch?.timestamp ?? epoch?.info?.timestamp ?? null;
+      const data = epoch?.data;
+      if (!data) return;
+
+      const { paragraph_id, sentence_id } = activeIdsRef.current;
+
+      // Case 1: one sample across channels: [ch1, ch2, ...]
+      if (Array.isArray(data) && typeof data[0] === "number") {
+        const row = { t_app, t_device, paragraph_id, sentence_id };
+        CHANNELS.forEach((ch, i) => (row[ch] = data[i] ?? ""));
+        eegRowsRef.current.push(row);
+        return;
+      }
+
+      // Case 2: matrix
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        // samples x channels
+        if (data[0].length === CHANNELS.length) {
+          data.forEach((sample) => {
+            const row = { t_app: Date.now(), t_device, paragraph_id, sentence_id };
+            CHANNELS.forEach((ch, i) => (row[ch] = sample[i] ?? ""));
+            eegRowsRef.current.push(row);
+          });
+          return;
+        }
+
+        // channels x samples
+        if (data.length === CHANNELS.length) {
+          const nSamples = data[0].length;
+          for (let s = 0; s < nSamples; s++) {
+            const row = { t_app: Date.now(), t_device, paragraph_id, sentence_id };
+            CHANNELS.forEach((ch, i) => (row[ch] = data[i]?.[s] ?? ""));
+            eegRowsRef.current.push(row);
+          }
+        }
+      }
+    });
+
+    return () => sub.unsubscribe();
+  }, [started, finished, deviceReady]);
+
+  // keypress labels: only "1" and "2"
   useEffect(() => {
     function onKeyDown(e) {
       if (!started || finished || inBreak || !currentSentence) return;
@@ -48,19 +117,17 @@ export function ReadingExperiment() {
       const now = Date.now();
 
       const newEvent = {
-        participant_id: participantId.trim(),
-        session_id: sessionId,
+        participant_id: participantId,
         paragraph_id: current.paragraphId,
         paragraph_type: current.type,
         sentence_id: currentSentence.sentenceId,
-        sentence_text: currentSentence.text,
-        t_sentence_start: sentenceStart ?? now,
+        t_sentence_start: sentenceStart,
         t_sentence_end: now,
         key_label: label,
         t_key_press: now,
       };
 
-      appendEvent(newEvent);
+      setEvents((prev) => [...prev, newEvent]);
       advanceSentence();
     }
 
@@ -71,130 +138,247 @@ export function ReadingExperiment() {
     finished,
     inBreak,
     participantId,
-    sessionId,
     current,
     currentSentence,
     sentenceStart,
-    sentenceIndex,
     paragraphIndex,
+    sentenceIndex,
   ]);
 
   function advanceSentence() {
-    const lastSentenceInParagraph = sentenceIndex + 1 >= sentences.length;
-    const lastParagraphOverall = paragraphIndex + 1 >= PARAGRAPHS.length;
+    const isLastSentence = sentenceIndex + 1 >= current.sentences.length;
+    const isLastParagraph = paragraphIndex + 1 >= PARAGRAPHS.length;
 
-    if (!lastSentenceInParagraph) {
+    if (!isLastSentence) {
       setSentenceIndex((i) => i + 1);
       return;
     }
 
-    if (lastParagraphOverall) {
+    // If last sentence of last paragraph -> finish
+    if (isLastParagraph) {
+      setInBreak(false);
       setFinished(true);
       return;
     }
 
-    // move to next paragraph with a 15s break
+    // move to next paragraph with a break
     setInBreak(true);
     setTimeout(() => {
       setParagraphIndex((p) => p + 1);
       setSentenceIndex(0);
       setInBreak(false);
-    }, 15000);
+    }, 3000);
   }
 
   function startExperiment() {
-    const pid = participantId.trim();
-    if (!pid) return;
+    if (!participantId.trim()) return;
+    if (!deviceReady) return;
 
-    upsertParticipantId(pid);
-    setSessionId(makeSessionId());
-
-    setStarted(true);
-    setFinished(false);
+    // reset buffers
+    eegRowsRef.current = [];
+    setEvents([]);
     setParagraphIndex(0);
     setSentenceIndex(0);
     setInBreak(false);
+    setFinished(false);
+
+    setStarted(true);
+    setSentenceStart(Date.now());
   }
 
-  // --- UI states ---
+  // Combine EEG rows with label events using UI timestamps (t_app within sentence start/end)
+  function downloadCombinedCSV() {
+    const eegRows = eegRowsRef.current;
+    const labelEvents = [...events].sort(
+      (a, b) => a.t_sentence_start - b.t_sentence_start
+    );
+
+    let j = 0;
+
+    const combined = eegRows.map((r) => {
+      while (j < labelEvents.length && r.t_app > labelEvents[j].t_sentence_end) {
+        j++;
+      }
+
+      const match =
+        j < labelEvents.length &&
+        r.t_app >= labelEvents[j].t_sentence_start &&
+        r.t_app <= labelEvents[j].t_sentence_end
+          ? labelEvents[j]
+          : null;
+
+      return {
+        participant_id: participantId,
+        t_app: r.t_app,
+        t_device: r.t_device ?? "",
+        paragraph_id: match?.paragraph_id ?? r.paragraph_id ?? "",
+        sentence_id: match?.sentence_id ?? r.sentence_id ?? "",
+        key_label: match?.key_label ?? "",
+        ...CHANNELS.reduce((acc, ch) => {
+          acc[ch] = r[ch] ?? "";
+          return acc;
+        }, {}),
+      };
+    });
+
+    const header = [
+      "participant_id",
+      "t_app",
+      "t_device",
+      "paragraph_id",
+      "sentence_id",
+      "key_label",
+      ...CHANNELS,
+    ];
+
+    const rows = combined.map((x) => header.map((k) => (x[k] ?? "")).join(","));
+
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `combined_${participantId}.csv`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  // --- UI ---
   if (!started) {
     return (
-      <div style={{ padding: 24, maxWidth: 900 }}>
+      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
         <h2>Reading Experiment</h2>
-        <p>Enter your participant ID to start. During the task, press:</p>
-        <ul>
-          <li><b>1</b> = neutral</li>
-          <li><b>2</b> = confusion</li>
-        </ul>
 
-        <label>
-          Participant ID:&nbsp;
-          <input
-            value={participantId}
-            onChange={(e) => setParticipantId(e.target.value)}
-            style={{ padding: 8, width: 260 }}
-          />
-        </label>
-        &nbsp;
-        <button onClick={startExperiment} disabled={!participantId.trim()} style={{ padding: "8px 14px" }}>
-          Start
-        </button>
-      </div>
-    );
-  }
+        <div style={{ marginTop: 12 }}>
+          <label>
+            Participant ID:{" "}
+            <input
+              value={participantId}
+              onChange={(e) => setParticipantId(e.target.value)}
+              placeholder="e.g. P001"
+              style={{ padding: 6 }}
+            />
+          </label>
+        </div>
 
-  if (finished) {
-    return (
-      <div style={{ padding: 24, maxWidth: 900 }}>
-        <h2>Experiment finished</h2>
-        <p>Thanks! Your labels have been saved. Please tell the researcher you are done.</p>
-        <p>(Downloads are available from the Admin page.)</p>
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => navigate("/devices")}
+            style={{ marginRight: 10 }}
+          >
+            Go to Devices
+          </button>
+
+          <button
+            onClick={startExperiment}
+            disabled={!participantId.trim() || !deviceReady}
+          >
+            Start
+          </button>
+
+          {!deviceReady && (
+            <p style={{ color: "crimson", marginTop: 10 }}>
+              Headset not ready yet. Go to Devices and connect/select your Crown.
+              <br />
+              Current status: {status?.state ?? "unknown"}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
   if (inBreak) {
     return (
-      <div style={{ padding: 24, maxWidth: 900 }}>
-        <h2>Break</h2>
-        <p>Next paragraph will start in ~15 seconds…</p>
+      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+        <h3>Break</h3>
+        <p>Next paragraph will start soon...</p>
       </div>
     );
   }
 
-  if (!current || sentences.length === 0 || !currentSentence) {
+  // ✅ Thank-you page after last sentence of last paragraph
+  if (finished) {
+    const eegCount = eegRowsRef.current.length;
     return (
-      <div style={{ padding: 24, maxWidth: 900 }}>
-        <h2>Loading paragraph…</h2>
+      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+        <h2>Thank you for participating!</h2>
+        <p>Your session is complete.</p>
+
+        <div style={{ marginTop: 12 }}>
+          <p>Labels collected: {events.length}</p>
+          <p>EEG rows collected: {eegCount}</p>
+
+          {eegCount === 0 && (
+            <p style={{ color: "crimson" }}>
+              No EEG data was recorded. This usually means the “raw” stream
+              didn’t emit data (device not actually streaming, wrong stream name,
+              or headset not fully connected).
+            </p>
+          )}
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <button onClick={downloadCombinedCSV} style={{ marginRight: 10 }}>
+            Download combined CSV
+          </button>
+          <button onClick={() => navigate("/")}>Back to Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Safety fallback (shouldn’t happen)
+  if (!current || !currentSentence) {
+    return (
+      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+        <h3>Session ended.</h3>
+        <button onClick={downloadCombinedCSV}>Download combined CSV</button>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 900 }}>
+    <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
       <h3>
-        Paragraph {paragraphIndex + 1} / {PARAGRAPHS.length} &nbsp;
+        Paragraph {current.paragraphId} / {PARAGRAPHS.length}
       </h3>
 
+      {/* Whole paragraph, sentence highlighted */}
       <div style={{ fontSize: 18, lineHeight: 1.8 }}>
-        {sentences.map((s, idx) => (
-          <span
-            key={s.sentenceId}
-            style={{
-              background: idx === sentenceIndex ? "rgba(255, 235, 59, 0.5)" : "transparent",
-              padding: idx === sentenceIndex ? "2px 4px" : 0,
-              borderRadius: 4,
-              transition: "background 120ms ease",
-            }}
-          >
-            {s.text + " "}
-          </span>
-        ))}
+        {current.sentences.map((s) => {
+          const isActive = s.sentenceId === currentSentence.sentenceId;
+          return (
+            <span
+              key={s.sentenceId}
+              style={{
+                background: isActive
+                  ? "rgba(255, 235, 59, 0.5)"
+                  : "transparent",
+                padding: isActive ? "2px 4px" : 0,
+                borderRadius: isActive ? 6 : 0,
+                transition: "background 120ms ease",
+                marginRight: 6,
+              }}
+            >
+              {s.text}
+            </span>
+          );
+        })}
       </div>
 
-      <div style={{ marginTop: 16, opacity: 0.85 }}>
-        <b>Press:</b> 1 = neutral, 2 = confusion
+      <div style={{ marginTop: 18, color: "#444" }}>
+        Press <b>1</b> = neutral, <b>2</b> = confusion
+      </div>
+
+      {/* optional tiny live debug */}
+      <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+        EEG rows buffered: {eegRowsRef.current.length} &nbsp;|&nbsp; Labels:{" "}
+        {events.length}
       </div>
     </div>
   );
 }
+
