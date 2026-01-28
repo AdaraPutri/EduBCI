@@ -6,9 +6,11 @@ import { paragraphs } from "../data/paragraphs.js";
 import { buildParagraphsWithSentences } from "../utils/sentenceUtils.js";
 import { neurosity, useNeurosity } from "../services/neurosity";
 
+const API_BASE = "http://localhost:8001";
 const CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"];
 
 export function ReadingExperiment() {
+  const [sessionId, setSessionId] = useState(null);
   const navigate = useNavigate();
 
   // --- neurosity device readiness ---
@@ -19,7 +21,8 @@ export function ReadingExperiment() {
     (status?.state === "online" ||
       status?.state === "connected" ||
       status?.connected === true);
-
+  
+  const [participantId, setParticipantId] = useState("");
   // --- paragraph data ---
   const PARAGRAPHS = useMemo(() => {
     // --- 1) parse participant shift (P001 -> 0, P002 -> 1, ... wraps mod 10) ---
@@ -69,7 +72,6 @@ export function ReadingExperiment() {
     current && current.sentences ? current.sentences[sentenceIndex] : null;
 
   // --- experiment state ---
-  const [participantId, setParticipantId] = useState("");
   const [started, setStarted] = useState(false);
   const [inBreak, setInBreak] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -145,6 +147,49 @@ export function ReadingExperiment() {
     return () => sub.unsubscribe();
   }, [started, finished, deviceReady]);
 
+
+  // 2) periodic batch flush (every 1s while running)
+  useEffect(() => {
+    if (!started || finished || !sessionId) return;
+
+    const interval = setInterval(() => {
+      if (inBreak) return;
+
+      const batch = eegRowsRef.current.slice(0, 200);
+      if (batch.length === 0) return;
+
+      eegRowsRef.current = eegRowsRef.current.slice(200);
+
+      fetch(`${API_BASE}/api/session/${sessionId}/eeg/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participant_id: participantId, rows: batch }),
+      }).catch(() => {});
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [started, finished, sessionId, participantId, inBreak]);
+
+
+  useEffect(() => {
+    if (!finished || !sessionId) return;
+
+    const remaining = eegRowsRef.current;
+    eegRowsRef.current = [];
+
+    const flush = remaining.length
+      ? fetch(`${API_BASE}/api/session/${sessionId}/eeg/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ participant_id: participantId, rows: remaining }),
+        }).catch(() => {})
+      : Promise.resolve();
+
+    flush.finally(() => {
+      fetch(`${API_BASE}/api/session/${sessionId}/finish`, { method: "POST" }).catch(() => {});
+    });
+  }, [finished, sessionId, participantId]);
+
   function labelCurrentSentence(label) {
     if (!started || finished || inBreak || !currentSentence) return;
 
@@ -160,6 +205,14 @@ export function ReadingExperiment() {
       key_label: label,
       t_key_press: now, // keep field name so CSV logic doesn't change
     };
+
+    if (sessionId) {
+      fetch(`${API_BASE}/api/session/${sessionId}/label`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newEvent),
+      }).catch(() => {});
+    }
 
     setEvents((prev) => [...prev, newEvent]);
     advanceSentence();
@@ -193,9 +246,18 @@ export function ReadingExperiment() {
   }
 
 
-  function startExperiment() {
+  async function startExperiment() {
     if (!participantId.trim()) return;
     if (!deviceReady) return;
+
+    // start session in DB first
+    const res = await fetch(`${API_BASE}/api/session/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participant_id: participantId.trim() }),
+    });
+    const data = await res.json();
+    setSessionId(data.session_id);
 
     // reset buffers
     eegRowsRef.current = [];
@@ -208,6 +270,8 @@ export function ReadingExperiment() {
     setStarted(true);
     setSentenceStart(Date.now());
   }
+
+  
 
   // Combine EEG rows with label events using UI timestamps (t_app within sentence start/end)
   function downloadCombinedCSV() {
@@ -318,7 +382,7 @@ export function ReadingExperiment() {
       <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h3>Break</h3>
         <p style={{ fontSize: 25, marginTop: 8 }}>
-        <p>Take as long as you need.</p> </p>
+        Take as long as you need.</p>
         <button onClick={continueToNextParagraph}>
           Ready for next paragraph
         </button>
