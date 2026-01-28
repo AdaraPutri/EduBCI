@@ -21,7 +21,46 @@ export function ReadingExperiment() {
       status?.connected === true);
 
   // --- paragraph data ---
-  const PARAGRAPHS = useMemo(() => buildParagraphsWithSentences(paragraphs), []);
+  const PARAGRAPHS = useMemo(() => {
+    // --- 1) parse participant shift (P001 -> 0, P002 -> 1, ... wraps mod 10) ---
+    const digits = participantId.match(/\d+/)?.[0];
+    const n = digits ? parseInt(digits, 10) : 1;
+    const shift = ((n - 1) % 10 + 10) % 10;
+
+    // --- 2) group paragraphs by type ---
+    const N = paragraphs.filter((p) => p.type === "neutral");
+    const P = paragraphs.filter((p) => p.type === "partly_confusing");
+    const F = paragraphs.filter((p) => p.type === "fully_confusing");
+
+    // safety fallback if counts aren't 10/10/10 for some reason
+    if (N.length !== 10 || P.length !== 10 || F.length !== 10) {
+      return buildParagraphsWithSentences(paragraphs);
+    }
+
+    // --- 3) rotate helper ---
+    const rotate = (arr, s) => arr.slice(s).concat(arr.slice(0, s));
+    const Nr = rotate(N, shift);
+    const Pr = rotate(P, shift);
+    const Fr = rotate(F, shift);
+
+    // --- 4) fixed mixed type schedule (10 N, 10 P, 10 F) ---
+    const schedule = [
+      "P","N","P","P","N","N","F","N","N","P",
+      "P","F","P","F","F","P","N","F","N","F",
+      "P","F","P","N","P","F","N","N","F","F",
+    ];
+
+    // --- 5) build ordered list by walking schedule ---
+    let iN = 0, iP = 0, iF = 0;
+    const ordered = schedule.map((t) => {
+      if (t === "N") return Nr[iN++];
+      if (t === "P") return Pr[iP++];
+      return Fr[iF++];
+    });
+
+    return buildParagraphsWithSentences(ordered);
+  }, [participantId]);
+
   const [paragraphIndex, setParagraphIndex] = useState(0);
   const [sentenceIndex, setSentenceIndex] = useState(0);
 
@@ -106,44 +145,25 @@ export function ReadingExperiment() {
     return () => sub.unsubscribe();
   }, [started, finished, deviceReady]);
 
-  // keypress labels: only "1" and "2"
-  useEffect(() => {
-    function onKeyDown(e) {
-      if (!started || finished || inBreak || !currentSentence) return;
-      if (!["1", "2"].includes(e.key)) return;
+  function labelCurrentSentence(label) {
+    if (!started || finished || inBreak || !currentSentence) return;
 
-      const labelMap = { "1": "neutral", "2": "confusion" };
-      const label = labelMap[e.key];
-      const now = Date.now();
+    const now = Date.now();
 
-      const newEvent = {
-        participant_id: participantId,
-        paragraph_id: current.paragraphId,
-        paragraph_type: current.type,
-        sentence_id: currentSentence.sentenceId,
-        t_sentence_start: sentenceStart,
-        t_sentence_end: now,
-        key_label: label,
-        t_key_press: now,
-      };
+    const newEvent = {
+      participant_id: participantId,
+      paragraph_id: current.paragraphId,
+      paragraph_type: current.type,
+      sentence_id: currentSentence.sentenceId,
+      t_sentence_start: sentenceStart,
+      t_sentence_end: now,
+      key_label: label,
+      t_key_press: now, // keep field name so CSV logic doesn't change
+    };
 
-      setEvents((prev) => [...prev, newEvent]);
-      advanceSentence();
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    started,
-    finished,
-    inBreak,
-    participantId,
-    current,
-    currentSentence,
-    sentenceStart,
-    paragraphIndex,
-    sentenceIndex,
-  ]);
+    setEvents((prev) => [...prev, newEvent]);
+    advanceSentence();
+  }
 
   function advanceSentence() {
     const isLastSentence = sentenceIndex + 1 >= current.sentences.length;
@@ -163,12 +183,15 @@ export function ReadingExperiment() {
 
     // move to next paragraph with a break
     setInBreak(true);
-    setTimeout(() => {
-      setParagraphIndex((p) => p + 1);
-      setSentenceIndex(0);
-      setInBreak(false);
-    }, 3000);
+    return;
   }
+
+  function continueToNextParagraph() {
+  setParagraphIndex((p) => p + 1);
+  setSentenceIndex(0);
+  setInBreak(false);
+  }
+
 
   function startExperiment() {
     if (!participantId.trim()) return;
@@ -294,10 +317,15 @@ export function ReadingExperiment() {
     return (
       <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h3>Break</h3>
-        <p>Next paragraph will start soon...</p>
+        <p style={{ fontSize: 25, marginTop: 8 }}>
+        <p>Take as long as you need.</p> </p>
+        <button onClick={continueToNextParagraph}>
+          Ready for next paragraph
+        </button>
       </div>
     );
   }
+
 
   // ✅ Thank-you page after last sentence of last paragraph
   if (finished) {
@@ -342,9 +370,32 @@ export function ReadingExperiment() {
 
   return (
     <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}> 
-      <h3>
-        Paragraph {current.paragraphId} / {PARAGRAPHS.length}
-      </h3>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <h3 style={{ margin: 0 }}>
+          Paragraph {current.paragraphId} / {PARAGRAPHS.length}
+        </h3>
+
+        <div>
+          <button
+            onClick={() => labelCurrentSentence("neutral")}
+            style={{ marginRight: 10 }}
+          >
+            Neutral
+          </button>
+
+          <button onClick={() => labelCurrentSentence("confusion")}>
+            Confusing
+          </button>
+        </div>
+      </div>
+
 
       {/* Whole paragraph, sentence highlighted */}
       <div style={{ fontSize: 25, lineHeight: 1.8 }}>
@@ -369,9 +420,6 @@ export function ReadingExperiment() {
         })}
       </div>
 
-      <div style={{ marginTop: 18, color: "#444" }}>
-        Press <b>1</b> = neutral, <b>2</b> = confusion
-      </div>
 
       {/* optional tiny live debug */}
       <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
@@ -381,4 +429,3 @@ export function ReadingExperiment() {
     </div>
   );
 }
-
