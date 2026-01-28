@@ -248,7 +248,7 @@ export function ReadingExperiment() {
   // --- UI ---
   if (!started) {
     return (
-      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+      <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h2>Reading Experiment</h2>
 
         <div style={{ marginTop: 12 }}>
@@ -292,7 +292,7 @@ export function ReadingExperiment() {
 
   if (inBreak) {
     return (
-      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+      <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h3>Break</h3>
         <p>Next paragraph will start soon...</p>
       </div>
@@ -341,14 +341,14 @@ export function ReadingExperiment() {
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+    <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}> 
       <h3>
         Paragraph {current.paragraphId} / {PARAGRAPHS.length}
       </h3>
 
       {/* Whole paragraph, sentence highlighted */}
-      <div style={{ fontSize: 18, lineHeight: 1.8 }}>
-        {current.sentences.map((s) => {
+      <div style={{ fontSize: 25, lineHeight: 1.8 }}>
+        {current.sentences.slice(0, sentenceIndex + 1).map((s) => {
           const isActive = s.sentenceId === currentSentence.sentenceId;
           return (
             <span
