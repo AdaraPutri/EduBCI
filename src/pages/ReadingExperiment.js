@@ -6,7 +6,7 @@ import { paragraphs } from "../data/paragraphs.js";
 import { buildParagraphsWithSentences } from "../utils/sentenceUtils.js";
 import { neurosity, useNeurosity } from "../services/neurosity";
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = "http://127.0.0.1:8000";
 const CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"];
 
 export function ReadingExperiment() {
@@ -88,7 +88,7 @@ export function ReadingExperiment() {
 
   useEffect(() => {
     activeIdsRef.current = {
-      paragraph_id: current?.paragraphId ?? null,
+      paragraph_id: current?.paragraphId != null ? Number(current.paragraphId) : null,
       sentence_id: currentSentence?.sentenceId ?? null,
     };
   }, [current?.paragraphId, currentSentence?.sentenceId]);
@@ -115,7 +115,7 @@ export function ReadingExperiment() {
       // Case 1: one sample across channels: [ch1, ch2, ...]
       if (Array.isArray(data) && typeof data[0] === "number") {
         const row = { t_app, t_device, paragraph_id, sentence_id };
-        CHANNELS.forEach((ch, i) => (row[ch] = data[i] ?? ""));
+        CHANNELS.forEach((ch, i) => (row[ch] = data[i] ?? null));
         eegRowsRef.current.push(row);
         return;
       }
@@ -126,7 +126,7 @@ export function ReadingExperiment() {
         if (data[0].length === CHANNELS.length) {
           data.forEach((sample) => {
             const row = { t_app: Date.now(), t_device, paragraph_id, sentence_id };
-            CHANNELS.forEach((ch, i) => (row[ch] = sample[i] ?? ""));
+            CHANNELS.forEach((ch, i) => (row[ch] = sample[i] ?? null));
             eegRowsRef.current.push(row);
           });
           return;
@@ -137,7 +137,7 @@ export function ReadingExperiment() {
           const nSamples = data[0].length;
           for (let s = 0; s < nSamples; s++) {
             const row = { t_app: Date.now(), t_device, paragraph_id, sentence_id };
-            CHANNELS.forEach((ch, i) => (row[ch] = data[i]?.[s] ?? ""));
+            CHANNELS.forEach((ch, i) => (row[ch] = data[i]?.[s] ?? null));
             eegRowsRef.current.push(row);
           }
         }
@@ -164,7 +164,14 @@ export function ReadingExperiment() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ participant_id: participantId, rows: batch }),
-      }).catch(() => {});
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            console.log("EEG batch error", r.status, await r.json());
+          }
+        })
+        .catch((e) => console.log("EEG batch fetch failed", e));
+
     }, 1000);
 
     return () => clearInterval(interval);
@@ -197,7 +204,7 @@ export function ReadingExperiment() {
 
     const newEvent = {
       participant_id: participantId,
-      paragraph_id: current.paragraphId,
+      paragraph_id: current?.paragraphId != null ? Number(current.paragraphId) : null,
       paragraph_type: current.type,
       sentence_id: currentSentence.sentenceId,
       t_sentence_start: sentenceStart,

@@ -6,15 +6,28 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "edubci.sqlite")
 
 CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"]
 
 app = FastAPI()
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    body = await request.body()
+    print("\n--- 422 VALIDATION ERROR ---")
+    print("PATH:", request.url.path)
+    print("ERRORS:", exc.errors())
+    print("BODY:", body.decode("utf-8", errors="ignore"))
+    print("--- END ---\n")
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # Allow your CRA dev server to call this backend
 app.add_middleware(
@@ -59,7 +72,7 @@ def init_db() -> None:
           participant_id TEXT NOT NULL,
           paragraph_id INTEGER,
           paragraph_type TEXT,
-          sentence_id TEXT,
+          sentence_id INTEGER,
           t_sentence_start INTEGER,
           t_sentence_end INTEGER,
           key_label TEXT,
@@ -79,7 +92,7 @@ def init_db() -> None:
           t_app INTEGER NOT NULL,
           t_device INTEGER,
           paragraph_id INTEGER,
-          sentence_id TEXT,
+          sentence_id INTEGER,
           {cols},
           FOREIGN KEY(session_id) REFERENCES sessions(id)
         );
@@ -109,7 +122,7 @@ class LabelEventReq(BaseModel):
     participant_id: str
     paragraph_id: Optional[int] = None
     paragraph_type: Optional[str] = None
-    sentence_id: Optional[str] = None
+    sentence_id: Optional[int] = None
     t_sentence_start: Optional[int] = None
     t_sentence_end: Optional[int] = None
     key_label: str
@@ -120,7 +133,7 @@ class EEGRow(BaseModel):
     t_app: int
     t_device: Optional[int] = None
     paragraph_id: Optional[int] = None
-    sentence_id: Optional[str] = None
+    sentence_id: Optional[int] = None
     PO3: Optional[float] = None
     PO4: Optional[float] = None
     C3: Optional[float] = None
