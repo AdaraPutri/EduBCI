@@ -10,6 +10,7 @@ import { Logout } from "./pages/Logout";
 import { ReadingExperiment } from "./pages/ReadingExperiment";
 import { Admin } from "./pages/Admin";
 import { Database } from "./pages/Database";
+import { Simulation } from "./pages/Simulation";
 
 function RequireAuth({ children }) {
   const { user, loadingUser } = useNeurosity();
@@ -35,15 +36,10 @@ export function App() {
     <ProvideNeurosity>
       <BrowserRouter>
         <Routes>
-          {/* default -> admin */}
           <Route path="/" element={<Navigate to="/admin" replace />} />
-
-          {/* ADMIN pages (1–3) */}
           <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
-
-          {/* PARTICIPANT pages (4–6) */}
           <Route path="/participant" element={<RequireAuth><ReadingExperiment /></RequireAuth>} />
-
+          <Route path="/admin/simulation" element={<RequireAuth><Simulation /></RequireAuth>} />
           <Route path="/login" element={<Login />} />
           <Route path="/logout" element={<Logout />} />
           <Route path="/admin/database" element={<RequireAuth><Database /></RequireAuth>} />

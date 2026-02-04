@@ -13,6 +13,9 @@ export function Admin() {
   const [participantId, setParticipantId] = useState("");
   const [starting, setStarting] = useState(false);
 
+  const [simParticipantId, setSimParticipantId] = useState("");
+  const [simStarting, setSimStarting] = useState(false);
+
   const deviceReady =
     !!selectedDevice?.deviceId &&
     (status?.state === "online" ||
@@ -46,6 +49,31 @@ export function Admin() {
     }
   }
 
+  async function startSimulation() {
+    const pid = simParticipantId.trim();
+    if (!pid || simStarting) return;
+
+    setSimStarting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/train_rf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participant_id: pid }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+
+      // Navigate to a placeholder page (you'll implement later)
+      navigate(`/admin/simulation?participantId=${encodeURIComponent(pid)}`);
+    } catch (e) {
+      console.log("Failed to start simulation", e);
+      alert(`Simulation failed: ${e.message}`);
+    } finally {
+      setSimStarting(false);
+    }
+  }
+
   const outlineBtnStyle = {
     fontSize: 25,
     padding: "12px 14px",
@@ -57,6 +85,30 @@ export function Admin() {
     fontWeight: 600,
   };
 
+  const smallOutlineBtnStyle = {
+    fontSize: 18,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "2px solid white",
+    background: "transparent",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 600,
+    alignSelf: "flex-end",
+  };
+
+  const blueBtnStyle = {
+    fontSize: 18,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "none",
+    cursor: "pointer",
+    background: "#1565c0",
+    color: "white",
+    fontWeight: 600,
+    alignSelf: "flex-end",
+  };
+
   const cardStyle = {
     flex: 1,
     padding: 16,
@@ -64,7 +116,6 @@ export function Admin() {
     border: "1px solid rgba(255,255,255,0.15)",
     background: "rgba(0,0,0,0.35)",
     color: "white",
-    minHeight: 170,
   };
 
   const inputStyle = {
@@ -85,6 +136,7 @@ export function Admin() {
       style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}
     >
       <h2>Hello, Admin!</h2>
+
       <div
         style={{
           width: "100%",
@@ -96,39 +148,70 @@ export function Admin() {
       >
         <div style={{ flex: "0 0 auto" }}>
           {user ? <Nav /> : null}
+          {/* Bottom buttons */}
+          <div style={{ display: "flex", marginLeft: 80, flex: "1 1 auto", gap: 0 }}>
+            <Link to="/admin/database">
+              <button style={outlineBtnStyle}>View Database</button>
+            </Link>
+          </div>
         </div>
 
-        {/* Participant box */}
-        <div style={{ ...cardStyle, flex: "1 1 auto", marginLeft: 0 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 18, opacity: 0.9 }}>Participant ID</div>
-            <input
-              value={participantId}
-              onChange={(e) => setParticipantId(e.target.value)}
-              placeholder="e.g. P001"
-              style={inputStyle}
-            />
-            <div style={{ fontSize: 14, opacity: 0.65 }}>
-              Enter ID above, then use <b>Start Participant View</b>.
+        {/* Right column cards */}
+        <div style={{ ...cardStyle, flex: "1 1 auto", marginLeft: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Participant card */}
+          <div style={{ ...cardStyle }}>
+            <div style={{ fontSize: 18, opacity: 0.9, marginBottom: 10 }}>Experiment</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 18, opacity: 0.9 }}>Participant ID</div>
+              <input
+                value={participantId}
+                onChange={(e) => setParticipantId(e.target.value)}
+                placeholder="e.g. P001"
+                style={inputStyle}
+              />
+
+              <button
+                style={smallOutlineBtnStyle}
+                onClick={startParticipantSession}
+                disabled={!participantId.trim() || !deviceReady || starting}
+              >
+                {starting ? "Starting..." : "Start Participant View"}
+              </button>
+
+              <div style={{ fontSize: 14, opacity: 0.65 }}>
+                Enter ID above, then press <b>Start Participant View</b>.
+              </div>
+            </div>
+          </div>
+
+          {/* Simulation card */}
+          <div style={{ ...cardStyle }}>
+            <div style={{ fontSize: 18, opacity: 0.9, marginBottom: 10 }}>Simulation</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 18, opacity: 0.9 }}>Participant ID</div>
+              <input
+                value={simParticipantId}
+                onChange={(e) => setSimParticipantId(e.target.value)}
+                placeholder="e.g. P001"
+                style={inputStyle}
+              />
+
+              <button
+                style={blueBtnStyle}
+                onClick={startSimulation}
+                disabled={!simParticipantId.trim() || simStarting}
+              >
+                {simStarting ? "Starting..." : "Start Simulation"}
+              </button>
+
+              <div style={{ fontSize: 14, opacity: 0.65 }}>
+                Trains RF model for that participant using the DB.
+              </div>
             </div>
           </div>
         </div>
-      </div>
-
-
-      {/* Top buttons: keep Start Participant View next to View Database */}
-      <div style={{ display: "flex", gap: 12 }}>
-        <Link to="/admin/database">
-          <button style={outlineBtnStyle}>View Database</button>
-        </Link>
-
-        <button
-          style={outlineBtnStyle}
-          onClick={startParticipantSession}
-          disabled={!participantId.trim() || !deviceReady || starting}
-        >
-          {starting ? "Starting..." : "Start Participant View"}
-        </button>
       </div>
     </main>
   );

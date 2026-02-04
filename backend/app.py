@@ -13,11 +13,67 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import io
 import csv
 
+from pathlib import Path
+import subprocess
+import sys
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "edubci.sqlite")
 
 CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"]
 
 app = FastAPI()
+
+class TrainRFReq(BaseModel):
+    participant_id: str
+
+@app.post("/api/train_rf")
+def train_rf(req: TrainRFReq):
+    pid = req.participant_id.strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+
+    # repo root = parent of backend/
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "ml" / "train_rf.py"
+    db_path = Path(DB_PATH).resolve()
+
+    if not script_path.exists():
+        raise HTTPException(status_code=500, detail=f"train_rf.py not found at {script_path}")
+
+    if not db_path.exists():
+        raise HTTPException(status_code=500, detail=f"DB not found at {db_path}")
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--db-path",
+        str(db_path),
+        "--participant-id",
+        pid,
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to run training: {e}")
+
+    # Return logs (trimmed) so FE can show something later if needed
+    stdout = (proc.stdout or "")[-8000:]
+    stderr = (proc.stderr or "")[-8000:]
+
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Training failed (code {proc.returncode}).\n{stderr or stdout}",
+        )
+
+    return {"ok": True, "participant_id": pid, "stdout": stdout}
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
