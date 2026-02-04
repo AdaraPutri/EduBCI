@@ -440,59 +440,89 @@ export function ReadingExperiment() {
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}> 
+    <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
+          gap: 18,
+          alignItems: "stretch", // lets the right column stretch to paragraph height
         }}
       >
-        <div>
-          <button
-            onClick={() => labelCurrentSentence("neutral")}
-            style={{ marginRight: 10 }}
-          >
-            Neutral
-          </button>
-
-          <button onClick={() => labelCurrentSentence("confusion")}>
-            Confusing
-          </button>
+        {/* Left: paragraph */}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 25, lineHeight: 1.8 }}>
+            {current.sentences.slice(0, sentenceIndex + 1).map((s) => {
+              const isActive = s.sentenceId === currentSentence.sentenceId;
+              return (
+                <span
+                  key={s.sentenceId}
+                  style={{
+                    background: isActive ? "rgba(255, 235, 59, 0.5)" : "transparent",
+                    padding: isActive ? "2px 4px" : 0,
+                    borderRadius: isActive ? 6 : 0,
+                    transition: "background 120ms ease",
+                    marginRight: 6,
+                  }}
+                >
+                  {s.text}
+                </span>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-
-      {/* Whole paragraph, sentence highlighted */}
-      <div style={{ fontSize: 25, lineHeight: 1.8 }}>
-        {current.sentences.slice(0, sentenceIndex + 1).map((s) => {
-          const isActive = s.sentenceId === currentSentence.sentenceId;
-          return (
-            <span
-              key={s.sentenceId}
+        {/* Right: labeling buttons */}
+        <div
+          style={{
+            width: 190,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "flex-end", // anchor the whole stack to the bottom
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,          // fixed spacing between buttons
+              paddingBottom: 4, // optional tiny bottom breathing room
+            }}
+          >
+            <button
+              onClick={() => labelCurrentSentence("neutral")}
               style={{
-                background: isActive
-                  ? "rgba(255, 235, 59, 0.5)"
-                  : "transparent",
-                padding: isActive ? "2px 4px" : 0,
-                borderRadius: isActive ? 6 : 0,
-                transition: "background 120ms ease",
-                marginRight: 6,
+                fontSize: 25,
+                padding: "12px 14px",
+                borderRadius: 12,
+                border: "none",
+                cursor: "pointer",
+                background: "#2e7d32",
+                color: "white",
+                fontWeight: 600,
               }}
             >
-              {s.text}
-            </span>
-          );
-        })}
-      </div>
+              Neutral
+            </button>
 
-
-      {/* optional tiny live debug */}
-      <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
-        EEG rows buffered: {eegRowsRef.current.length} &nbsp;|&nbsp; Labels:{" "}
-        {events.length}
+            <button
+              onClick={() => labelCurrentSentence("confusion")}
+              style={{
+                fontSize: 25,
+                padding: "12px 14px",
+                borderRadius: 12,
+                border: "none",
+                cursor: "pointer",
+                background: "#c62828",
+                color: "white",
+                fontWeight: 600,
+              }}
+            >
+              Confusing
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
+
 }
