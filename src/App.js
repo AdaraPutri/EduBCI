@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
@@ -6,9 +7,9 @@ import { Devices } from "./pages/Devices";
 import { Loading } from "./components/Loading";
 import { Login } from "./pages/Login";
 import { Logout } from "./pages/Logout";
-import { Calm } from "./pages/Calm";
 import { ReadingExperiment } from "./pages/ReadingExperiment";
 import { Admin } from "./pages/Admin";
+import { AdminExperiment } from "./pages/AdminExperiment";
 
 function RequireAuth({ children }) {
   const { user, loadingUser } = useNeurosity();
@@ -34,10 +35,21 @@ export function App() {
     <ProvideNeurosity>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<RequireAuth><Calm /></RequireAuth>} />
-          <Route path="/devices" element={<RequireAuth><Devices /></RequireAuth>} />
-          <Route path="/experiment" element={<RequireAuth><ReadingExperiment /></RequireAuth>} />
+          {/* default -> admin */}
+          <Route path="/" element={<Navigate to="/admin" replace />} />
+
+          {/* ADMIN pages (1–3) */}
           <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
+          <Route path="/admin/devices" element={<RequireAuth><Devices /></RequireAuth>} />
+          <Route path="/admin/experiment" element={<RequireAuth><AdminExperiment /></RequireAuth>} />
+
+          {/* PARTICIPANT pages (4–6) */}
+          <Route path="/participant" element={<RequireAuth><ReadingExperiment /></RequireAuth>} />
+
+          {/* Backwards-compatible redirects (optional but nice) */}
+          <Route path="/devices" element={<Navigate to="/admin/devices" replace />} />
+          <Route path="/experiment" element={<Navigate to="/admin/experiment" replace />} />
+
           <Route path="/login" element={<Login />} />
           <Route path="/logout" element={<Logout />} />
         </Routes>

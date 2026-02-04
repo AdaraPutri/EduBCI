@@ -1,6 +1,6 @@
 // src/pages/ReadingExperiment.js
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { paragraphs } from "../data/paragraphs.js";
 import { buildParagraphsWithSentences } from "../utils/sentenceUtils.js";
@@ -11,7 +11,10 @@ const CHANNELS = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"];
 
 export function ReadingExperiment() {
   const [sessionId, setSessionId] = useState(null);
+  const [participantId, setParticipantId] = useState("");
+
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // --- neurosity device readiness ---
   const { selectedDevice, status } = useNeurosity();
@@ -21,8 +24,16 @@ export function ReadingExperiment() {
     (status?.state === "online" ||
       status?.state === "connected" ||
       status?.connected === true);
-  
-  const [participantId, setParticipantId] = useState("");
+
+  // Pull participant/session from URL (participant-only mode)
+  useEffect(() => {
+    const pid = (searchParams.get("participantId") || "").trim();
+    const sid = (searchParams.get("sessionId") || "").trim();
+
+    setParticipantId(pid);
+    setSessionId(sid || null);
+  }, [searchParams]);
+
   // --- paragraph data ---
   const PARAGRAPHS = useMemo(() => {
     // --- 1) parse participant shift (P001 -> 0, P002 -> 1, ... wraps mod 10) ---
@@ -48,9 +59,9 @@ export function ReadingExperiment() {
 
     // --- 4) fixed mixed type schedule (10 N, 10 P, 10 F) ---
     const schedule = [
-      "P","N","P","P","N","N","F","N","N","P",
-      "P","F","P","F","F","P","N","F","N","F",
-      "P","F","P","N","P","F","N","N","F","F",
+      "P", "N", "P", "P", "N", "N", "F", "N", "N", "P",
+      "P", "F", "P", "F", "F", "P", "N", "F", "N", "F",
+      "P", "F", "P", "N", "P", "F", "N", "N", "F", "F",
     ];
 
     // --- 5) build ordered list by walking schedule ---
@@ -70,6 +81,7 @@ export function ReadingExperiment() {
   const current = PARAGRAPHS[paragraphIndex];
   const currentSentence =
     current && current.sentences ? current.sentences[sentenceIndex] : null;
+
   const totalParagraphs = PARAGRAPHS.length;
   const currentParagraphNumber = paragraphIndex + 1; // 1-based for display
 
@@ -88,12 +100,45 @@ export function ReadingExperiment() {
   // Track "current paragraph/sentence" for EEG tagging without resubscribing
   const activeIdsRef = useRef({ paragraph_id: null, sentence_id: null });
 
+  // Track current session key so we can reset when URL changes (new session)
+  const activeSessionKeyRef = useRef(null);
+
   useEffect(() => {
     activeIdsRef.current = {
       paragraph_id: current?.paragraphId != null ? Number(current.paragraphId) : null,
       sentence_id: currentSentence?.sentenceId ?? null,
     };
   }, [current?.paragraphId, currentSentence?.sentenceId]);
+
+  // Auto-start once we have participantId + sessionId AND headset is ready
+  useEffect(() => {
+    const sid = sessionId || "";
+    const key =
+      participantId.trim() && sid.trim() ? `${participantId.trim()}|${sid.trim()}` : null;
+
+    if (!key) {
+      setStarted(false);
+      return;
+    }
+    if (!deviceReady) {
+      setStarted(false);
+      return;
+    }
+
+    if (activeSessionKeyRef.current === key) return;
+    activeSessionKeyRef.current = key;
+
+    // reset buffers/state (same as startExperiment, but without calling /start)
+    eegRowsRef.current = [];
+    setEvents([]);
+    setParagraphIndex(0);
+    setSentenceIndex(0);
+    setInBreak(false);
+    setFinished(false);
+
+    setStarted(true);
+    setSentenceStart(Date.now());
+  }, [participantId, sessionId, deviceReady]);
 
   // start timer when a new sentence appears
   useEffect(() => {
@@ -149,7 +194,6 @@ export function ReadingExperiment() {
     return () => sub.unsubscribe();
   }, [started, finished, deviceReady]);
 
-
   // 2) periodic batch flush (every 1s while running)
   useEffect(() => {
     if (!started || finished || !sessionId) return;
@@ -173,12 +217,10 @@ export function ReadingExperiment() {
           }
         })
         .catch((e) => console.log("EEG batch fetch failed", e));
-
     }, 1000);
 
     return () => clearInterval(interval);
   }, [started, finished, sessionId, participantId, inBreak]);
-
 
   useEffect(() => {
     if (!finished || !sessionId) return;
@@ -249,78 +291,39 @@ export function ReadingExperiment() {
   }
 
   function continueToNextParagraph() {
-  setParagraphIndex((p) => p + 1);
-  setSentenceIndex(0);
-  setInBreak(false);
-  }
-
-
-  async function startExperiment() {
-    if (!participantId.trim()) return;
-    if (!deviceReady) return;
-
-    // start session in DB first
-    const res = await fetch(`${API_BASE}/api/session/start`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ participant_id: participantId.trim() }),
-    });
-    const data = await res.json();
-    setSessionId(data.session_id);
-
-    // reset buffers
-    eegRowsRef.current = [];
-    setEvents([]);
-    setParagraphIndex(0);
+    setParagraphIndex((p) => p + 1);
     setSentenceIndex(0);
     setInBreak(false);
-    setFinished(false);
-
-    setStarted(true);
-    setSentenceStart(Date.now());
   }
-
 
   // --- UI ---
   if (!started) {
+    const missingIds = !participantId.trim() || !sessionId;
     return (
       <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h2>Reading Experiment</h2>
 
-        <div style={{ marginTop: 12 }}>
-          <label>
-            Participant ID:{" "}
-            <input
-              value={participantId}
-              onChange={(e) => setParticipantId(e.target.value)}
-              placeholder="e.g. P001"
-              style={{ padding: 6 }}
-            />
-          </label>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={() => navigate("/devices")}
-            style={{ marginRight: 10 }}
-          >
-            Go to Devices
-          </button>
-
-          <button
-            onClick={startExperiment}
-            disabled={!participantId.trim() || !deviceReady}
-          >
-            Start
-          </button>
-
-          {!deviceReady && (
+        {missingIds ? (
+          <p style={{ marginTop: 12 }}>
+            Session not started yet. Please ask the admin to start the session.
+          </p>
+        ) : (
+          <>
+            <p style={{ marginTop: 12 }}>
+              Waiting for headset connection...
+            </p>
             <p style={{ color: "crimson", marginTop: 10 }}>
-              Headset not ready yet. Go to Devices and connect/select your Crown.
+              Headset not ready yet.
               <br />
               Current status: {status?.state ?? "unknown"}
             </p>
-          )}
+          </>
+        )}
+
+        <div style={{ marginTop: 14 }}>
+          <button onClick={() => navigate("/admin/experiment")}>
+            Back to setup
+          </button>
         </div>
       </div>
     );
@@ -335,7 +338,7 @@ export function ReadingExperiment() {
           padding: 16,
           display: "flex",
           flexDirection: "column",
-          minHeight: "60vh",          // gives vertical room so "bottom-right" is visible
+          minHeight: "60vh",
           justifyContent: "space-between",
         }}
       >
@@ -344,8 +347,7 @@ export function ReadingExperiment() {
           <p style={{ fontSize: 25, marginTop: 8 }}>Take as long as you need.</p>
         </div>
 
-        {/* Bottom-right button aligned with label column width */}
-        <div style={{ alignSelf: "flex-end"}}>
+        <div style={{ alignSelf: "flex-end" }}>
           <button
             onClick={continueToNextParagraph}
             style={{
@@ -390,6 +392,15 @@ export function ReadingExperiment() {
     );
   }
 
+  // Safety fallback (shouldn’t happen)
+  if (!current || !currentSentence) {
+    return (
+      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
+        <h3>Session ended.</h3>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
       {/* Progress header (uses paragraphIndex, NOT paragraphId) */}
@@ -410,7 +421,7 @@ export function ReadingExperiment() {
         style={{
           display: "flex",
           gap: 18,
-          alignItems: "stretch", // lets the right column stretch to paragraph height
+          alignItems: "stretch",
         }}
       >
         {/* Left: paragraph */}
@@ -442,15 +453,15 @@ export function ReadingExperiment() {
             width: 190,
             display: "flex",
             flexDirection: "column",
-            justifyContent: "flex-end", // anchor the whole stack to the bottom
+            justifyContent: "flex-end",
           }}
         >
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 14,          // fixed spacing between buttons
-              paddingBottom: 4, // optional tiny bottom breathing room
+              gap: 14,
+              paddingBottom: 4,
             }}
           >
             <button
@@ -489,5 +500,4 @@ export function ReadingExperiment() {
       </div>
     </div>
   );
-
 }
