@@ -80,6 +80,31 @@ export function Database() {
       alert(`Download failed for ${pid}: ${e.message}`);
     }
   }
+  
+  async function downloadSimSurveyCsv(pid) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/participants/${encodeURIComponent(pid)}/simulation_survey_csv`
+      );
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `participant_${pid}_simulation_survey.csv`;
+      a.click();
+
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Download failed for ${pid}: ${e.message}`);
+    }
+  }
+
 
   return (
     <div
@@ -123,6 +148,7 @@ export function Database() {
                 <th style={th}>Last Ended</th>
                 <th style={th}>EEG + Labels</th>
                 <th style={th}>Simulation Feedback</th>
+                <th style={th}>Simulation Survey</th>
               </tr>
             </thead>
             <tbody>
@@ -142,12 +168,17 @@ export function Database() {
                       Download CSV
                     </button>
                   </td>
+                  <td style={td}>
+                    <button onClick={() => downloadSimSurveyCsv(p.participant_id)} style={outlineBtn}>
+                        Download CSV
+                    </button>
+                    </td>
                 </tr>
               ))}
 
               {participants.length === 0 && (
                 <tr>
-                  <td style={td} colSpan={6}>
+                  <td style={td} colSpan={7}>
                     No participants yet.
                   </td>
                 </tr>

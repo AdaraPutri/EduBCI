@@ -26,6 +26,17 @@ export function Simulation() {
   const [idx, setIdx] = useState(0);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  
+  // questionnaire states
+  const [q1, setQ1] = useState("");
+  const [q2, setQ2] = useState("");
+  const [q3, setQ3] = useState("");
+  const [q4, setQ4] = useState("");
+  const [q5, setQ5] = useState("");
+
+  const [surveySaving, setSurveySaving] = useState(false);
+  const [surveySubmitted, setSurveySubmitted] = useState(false);
+
 
   // Build the SAME paragraph order logic (so paragraph_id + sentence_id mapping stays consistent)
   const PARAGRAPHS = useMemo(() => {
@@ -152,6 +163,50 @@ export function Simulation() {
       setSaving(false);
     }
   }
+  
+  async function submitSurvey() {
+    if (surveySaving) return;
+
+    const q1n = Number(q1);
+    const q2n = Number(q2);
+    const q3n = Number(q3);
+
+    if (![1,2,3,4,5].includes(q1n) || ![1,2,3,4,5].includes(q2n) || ![1,2,3,4,5].includes(q3n)) {
+      alert("Please answer Q1–Q3 with a rating from 1 to 5.");
+      return;
+    }
+
+    setSurveySaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/simulation/survey`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          participant_id: participantId,
+          q1_helpful_highlight_reading: q1n,
+          q2_helpful_questions_lecture: q2n,
+          q3_helpful_explanations_lecture: q3n,
+          q4_other_software_reading: q4,
+          q5_other_software_lecture: q5,
+          t_survey_ms: Date.now(),
+        }),
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+
+      setSurveySubmitted(true);
+    } catch (e) {
+      alert(`Failed to submit survey: ${e.message}`);
+    } finally {
+      setSurveySaving(false);
+    }
+  }
+
+  
 
   if (loading) {
     return (
@@ -215,16 +270,143 @@ export function Simulation() {
       </div>
     );
   }
-
+  
   if (finished) {
+    if (surveySubmitted) {
+      return (
+        <div style={{ maxWidth: 900, margin: "80px auto", padding: 16, color: "white" }}>
+          <h2>Thank you!</h2>
+          <p>Simulation complete.</p>
+          <button onClick={() => navigate("/admin")} style={outlineBtn}>Back to Admin</button>
+        </div>
+      );
+    }
+
+    const selectStyle = {
+      width: "100%",
+      boxSizing: "border-box",
+      background: "transparent",
+      color: "white",
+      border: "1px solid rgba(255,255,255,0.35)",
+      borderRadius: 10,
+      padding: "10px 12px",
+      outline: "none",
+      fontSize: 20,
+    };
+
+    const labelStyle = { fontSize: 20, opacity: 0.9, marginBottom: 8, lineHeight: 1.4 };
+
+    const textareaStyle = {
+      width: "100%",
+      boxSizing: "border-box",
+      background: "transparent",
+      color: "white",
+      border: "1px solid rgba(255,255,255,0.35)",
+      borderRadius: 10,
+      padding: 10,
+      outline: "none",
+      resize: "vertical",
+      fontSize: 20,
+    };
+
+    const card = {
+      border: "1px solid rgba(255,255,255,0.2)",
+      background: "rgba(0,0,0,0.35)",
+      borderRadius: 12,
+      padding: 14,
+      marginTop: 12,
+    };
+
     return (
       <div style={{ maxWidth: 900, margin: "80px auto", padding: 16, color: "white" }}>
         <h2>Thank you!</h2>
-        <p>Simulation complete.</p>
-        <button onClick={() => navigate("/admin")} style={outlineBtn}>Back to Admin</button>
+        <p style={{ opacity: 0.9 }}>
+          Before you go, please answer these final questions.
+        </p>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q1:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
+            How helpful would it be to have software automatically highlight sentences that you find confusing while you are reading on the computer?
+          </div>
+          <select value={q1} onChange={(e) => setQ1(e.target.value)} style={selectStyle}>
+            <option value="">Select 1–5</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          </select>
+        </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q2:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
+            How helpful would it be to have software suggest clarifying questions to you during a class 
+            <br />
+            (i.e., in-person lecture) when it detects that you have encountered confusing material?
+          </div>
+          <select value={q2} onChange={(e) => setQ2(e.target.value)} style={selectStyle}>
+            <option value="">Select 1–5</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          </select>
+        </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q3:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
+            How helpful would it be to have software that provides additional explanations when it detects that you find material confusing during a class (i.e., in-person lecture)?
+          </div>
+          <select value={q3} onChange={(e) => setQ3(e.target.value)} style={selectStyle}>
+            <option value="">Select 1–5</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          </select>
+        </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q4:</b> In the context of helping you resolve confusion while reading online, are there other kinds of software that you can think of that would be useful for your studying or learning purposes?
+          </div>
+          <textarea
+            value={q4}
+            onChange={(e) => setQ4(e.target.value)}
+            rows={5}
+            placeholder="Type your answer…"
+            style={textareaStyle}
+          />
+        </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q5:</b> In the context of helping you resolve confusion while attending an in-person lecture, are there other kinds of software that you can think of that would be useful for your studying or learning purposes?
+          </div>
+          <textarea
+            value={q5}
+            onChange={(e) => setQ5(e.target.value)}
+            rows={5}
+            placeholder="Type your answer…"
+            style={textareaStyle}
+          />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button
+            onClick={submitSurvey}
+            disabled={surveySaving}
+            style={{
+              fontSize: 18,
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "none",
+              cursor: "pointer",
+              background: "#1565c0",
+              color: "white",
+              fontWeight: 600,
+            }}
+          >
+            {surveySaving ? "Submitting..." : "Submit"}
+          </button>
+        </div>
       </div>
     );
   }
+
 
   if (!item) {
     return (

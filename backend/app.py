@@ -718,3 +718,144 @@ def download_sim_feedback_csv(participant_id: str):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+    
+class SimulationSurveyReq(BaseModel):
+    session_id: int
+    participant_id: str
+    q1_helpful_highlight_reading: int  # 1-5
+    q2_helpful_questions_lecture: int  # 1-5
+    q3_helpful_explanations_lecture: int  # 1-5
+    q4_other_software_reading: str = ""
+    q5_other_software_lecture: str = ""
+    t_survey_ms: Optional[int] = None
+
+
+@app.post("/api/simulation/survey")
+def save_simulation_survey(req: SimulationSurveyReq):
+    pid = (req.participant_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # basic validation for 1-5
+    for v, name in [
+        (req.q1_helpful_highlight_reading, "q1"),
+        (req.q2_helpful_questions_lecture, "q2"),
+        (req.q3_helpful_explanations_lecture, "q3"),
+    ]:
+        if not isinstance(v, int) or v < 1 or v > 5:
+            raise HTTPException(status_code=400, detail=f"{name} must be an integer 1-5")
+
+    payload = {
+        "kind": "simulation_survey",
+        "q1_helpful_highlight_reading": req.q1_helpful_highlight_reading,
+        "q2_helpful_questions_lecture": req.q2_helpful_questions_lecture,
+        "q3_helpful_explanations_lecture": req.q3_helpful_explanations_lecture,
+        "q4_other_software_reading": req.q4_other_software_reading,
+        "q5_other_software_lecture": req.q5_other_software_lecture,
+        "t_survey_ms": req.t_survey_ms,
+    }
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM sessions WHERE id=?", (req.session_id,))
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # store in label_events, with sentence_id NULL (so it won't affect EEG joins)
+    cur.execute(
+        """
+        INSERT INTO label_events (
+          session_id, participant_id, paragraph_id, paragraph_type, sentence_id,
+          t_sentence_start, t_sentence_end, key_label, t_key_press
+        ) VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?)
+        """,
+        (
+            req.session_id,
+            pid,
+            json.dumps(payload, ensure_ascii=False),
+            "simulation_survey",
+            req.t_survey_ms,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/participants/{participant_id}/simulation_survey_csv")
+def download_sim_survey_csv(participant_id: str):
+    pid = (participant_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT id, session_id, participant_id, paragraph_type, t_key_press
+        FROM label_events
+        WHERE participant_id = ?
+          AND key_label = 'simulation_survey'
+        ORDER BY id ASC
+        """,
+        (pid,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No simulation survey found for participant")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    header = [
+        "id",
+        "session_id",
+        "participant_id",
+        "t_survey_ms",
+        "q1_helpful_highlight_reading",
+        "q2_helpful_questions_lecture",
+        "q3_helpful_explanations_lecture",
+        "q4_other_software_reading",
+        "q5_other_software_lecture",
+    ]
+    writer.writerow(header)
+
+    for r in rows:
+        blob = r["paragraph_type"] or ""
+        data = {}
+        try:
+            data = json.loads(blob) if blob else {}
+        except Exception:
+            data = {}
+
+        writer.writerow(
+            [
+                r["id"],
+                r["session_id"],
+                r["participant_id"],
+                data.get("t_survey_ms", r["t_key_press"] or ""),
+                data.get("q1_helpful_highlight_reading", ""),
+                data.get("q2_helpful_questions_lecture", ""),
+                data.get("q3_helpful_explanations_lecture", ""),
+                data.get("q4_other_software_reading", ""),
+                data.get("q5_other_software_lecture", ""),
+            ]
+        )
+
+    csv_bytes = output.getvalue().encode("utf-8")
+    output.close()
+
+    filename = f"participant_{pid}_simulation_survey.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
