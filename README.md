@@ -1,7 +1,4 @@
 # 🚀 Notion React Starter
-
-![App Screenshot](public/notion-react-starter.png)
-
 ### Getting Started
 
 - 1️⃣ `git clone https://github.com/neurosity/notion-react-starter.git`
@@ -18,3 +15,34 @@
 - 👍 React Use - [react-use](https://github.com/streamich/react-use)
 
 MIT License
+
+### Terminal commands
+- To create virtual environment
+```bash
+python3 -m venv venv
+```
+
+- To start virtual environment
+```bash
+source .venv/bin/activate
+```
+
+- To install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+- To set up GUI
+```bash
+npm start
+```
+
+- To start API
+```bash
+python -m uvicorn backend.app:app --reload
+```
+
+- To run analysis on a participant (swap out P001 for participant's ID)
+```bash
+python ml/train_rf.py --db-path ./backend/edubci.sqlite --participant-id P001
+```

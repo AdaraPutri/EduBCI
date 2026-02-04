@@ -449,10 +449,6 @@ export function ReadingExperiment() {
           gap: 12,
         }}
       >
-        <h3 style={{ margin: 0 }}>
-          Paragraph {current.paragraphId} / {PARAGRAPHS.length}
-        </h3>
-
         <div>
           <button
             onClick={() => labelCurrentSentence("neutral")}
