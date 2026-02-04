@@ -70,6 +70,8 @@ export function ReadingExperiment() {
   const current = PARAGRAPHS[paragraphIndex];
   const currentSentence =
     current && current.sentences ? current.sentences[sentenceIndex] : null;
+  const totalParagraphs = PARAGRAPHS.length;
+  const currentParagraphNumber = paragraphIndex + 1; // 1-based for display
 
   // --- experiment state ---
   const [started, setStarted] = useState(false);
@@ -278,66 +280,6 @@ export function ReadingExperiment() {
     setSentenceStart(Date.now());
   }
 
-  
-
-  // Combine EEG rows with label events using UI timestamps (t_app within sentence start/end)
-  function downloadCombinedCSV() {
-    const eegRows = eegRowsRef.current;
-    const labelEvents = [...events].sort(
-      (a, b) => a.t_sentence_start - b.t_sentence_start
-    );
-
-    let j = 0;
-
-    const combined = eegRows.map((r) => {
-      while (j < labelEvents.length && r.t_app > labelEvents[j].t_sentence_end) {
-        j++;
-      }
-
-      const match =
-        j < labelEvents.length &&
-        r.t_app >= labelEvents[j].t_sentence_start &&
-        r.t_app <= labelEvents[j].t_sentence_end
-          ? labelEvents[j]
-          : null;
-
-      return {
-        participant_id: participantId,
-        t_app: r.t_app,
-        t_device: r.t_device ?? "",
-        paragraph_id: match?.paragraph_id ?? r.paragraph_id ?? "",
-        sentence_id: match?.sentence_id ?? r.sentence_id ?? "",
-        key_label: match?.key_label ?? "",
-        ...CHANNELS.reduce((acc, ch) => {
-          acc[ch] = r[ch] ?? "";
-          return acc;
-        }, {}),
-      };
-    });
-
-    const header = [
-      "participant_id",
-      "t_app",
-      "t_device",
-      "paragraph_id",
-      "sentence_id",
-      "key_label",
-      ...CHANNELS,
-    ];
-
-    const rows = combined.map((x) => header.map((k) => (x[k] ?? "")).join(","));
-
-    const csv = [header.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `combined_${participantId}.csv`;
-    a.click();
-
-    URL.revokeObjectURL(url);
-  }
 
   // --- UI ---
   if (!started) {
@@ -386,19 +328,45 @@ export function ReadingExperiment() {
 
   if (inBreak) {
     return (
-      <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
-        <h3>Break</h3>
-        <p style={{ fontSize: 25, marginTop: 8 }}>
-        Take as long as you need.</p>
-        <button onClick={continueToNextParagraph}>
-          Ready for next paragraph
-        </button>
+      <div
+        style={{
+          maxWidth: 900,
+          margin: "80px auto",
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "60vh",          // gives vertical room so "bottom-right" is visible
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <h3>Break</h3>
+          <p style={{ fontSize: 25, marginTop: 8 }}>Take as long as you need.</p>
+        </div>
+
+        {/* Bottom-right button aligned with label column width */}
+        <div style={{ alignSelf: "flex-end"}}>
+          <button
+            onClick={continueToNextParagraph}
+            style={{
+              fontSize: 25,
+              padding: "12px 14px",
+              borderRadius: 12,
+              border: "none",
+              cursor: "pointer",
+              background: "#1565c0",
+              color: "white",
+              fontWeight: 600,
+            }}
+          >
+            Ready for next paragraph
+          </button>
+        </div>
       </div>
     );
   }
 
-
-  // ✅ Thank-you page after last sentence of last paragraph
+  // Thank-you page after last sentence of last paragraph
   if (finished) {
     const eegCount = eegRowsRef.current.length;
     return (
@@ -418,29 +386,26 @@ export function ReadingExperiment() {
             </p>
           )}
         </div>
-
-        <div style={{ marginTop: 18 }}>
-          <button onClick={downloadCombinedCSV} style={{ marginRight: 10 }}>
-            Download combined CSV
-          </button>
-          <button onClick={() => navigate("/")}>Back to Home</button>
-        </div>
-      </div>
-    );
-  }
-
-  // Safety fallback (shouldn’t happen)
-  if (!current || !currentSentence) {
-    return (
-      <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
-        <h3>Session ended.</h3>
-        <button onClick={downloadCombinedCSV}>Download combined CSV</button>
       </div>
     );
   }
 
   return (
     <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
+      {/* Progress header (uses paragraphIndex, NOT paragraphId) */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ fontSize: 18, color: "#666" }}>
+          Paragraph {currentParagraphNumber} / {totalParagraphs}
+        </div>
+      </div>
+
       <div
         style={{
           display: "flex",
