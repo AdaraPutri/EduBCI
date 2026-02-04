@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import random
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -32,16 +34,18 @@ def train_rf(req: TrainRFReq):
     if not pid:
         raise HTTPException(status_code=400, detail="participant_id is required")
 
-    # repo root = parent of backend/
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "ml" / "train_rf.py"
     db_path = Path(DB_PATH).resolve()
 
     if not script_path.exists():
         raise HTTPException(status_code=500, detail=f"train_rf.py not found at {script_path}")
-
     if not db_path.exists():
         raise HTTPException(status_code=500, detail=f"DB not found at {db_path}")
+
+    # ✅ per-participant output folder so metrics aren't overwritten
+    out_dir = repo_root / "models" / pid
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         sys.executable,
@@ -50,6 +54,8 @@ def train_rf(req: TrainRFReq):
         str(db_path),
         "--participant-id",
         pid,
+        "--out-dir",
+        str(out_dir),
     ]
 
     try:
@@ -63,7 +69,6 @@ def train_rf(req: TrainRFReq):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to run training: {e}")
 
-    # Return logs (trimmed) so FE can show something later if needed
     stdout = (proc.stdout or "")[-8000:]
     stderr = (proc.stderr or "")[-8000:]
 
@@ -73,7 +78,15 @@ def train_rf(req: TrainRFReq):
             detail=f"Training failed (code {proc.returncode}).\n{stderr or stdout}",
         )
 
-    return {"ok": True, "participant_id": pid, "stdout": stdout}
+    metrics_path = out_dir / "rf_metrics.json"
+    metrics = None
+    if metrics_path.exists():
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except Exception:
+            metrics = None
+
+    return {"ok": True, "participant_id": pid, "stdout": stdout, "metrics": metrics}
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -426,6 +439,280 @@ def download_participant_csv(participant_id: str):
     output.close()
 
     filename = f"participant_{pid}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+    
+class SimulationItemsResp(BaseModel):
+    participant_id: str
+    n_requested: int
+    n_returned: int
+    confusion_matrix: Optional[List[List[int]]] = None
+    recall_neutral: Optional[float] = None
+    recall_confusion: Optional[float] = None
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+@app.get("/api/simulation/items", response_model=SimulationItemsResp)
+def simulation_items(participant_id: str, n: int = 10):
+    pid = (participant_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+
+    # Load participant metrics (confusion matrix) if available
+    repo_root = Path(__file__).resolve().parents[1]
+    metrics_path = repo_root / "models" / pid / "rf_metrics.json"
+
+    cm = None
+    recall_neu = None
+    recall_con = None
+    if metrics_path.exists():
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            cm = metrics.get("confusion_matrix")
+            if (
+                isinstance(cm, list)
+                and len(cm) == 2
+                and all(isinstance(r, list) and len(r) == 2 for r in cm)
+            ):
+                tn, fp = int(cm[0][0]), int(cm[0][1])
+                fn, tp = int(cm[1][0]), int(cm[1][1])
+
+                # recall(neutral) = TN/(TN+FP), recall(confusion) = TP/(TP+FN)
+                denom_neu = tn + fp
+                denom_con = tp + fn
+                recall_neu = (tn / denom_neu) if denom_neu else None
+                recall_con = (tp / denom_con) if denom_con else None
+        except Exception:
+            cm = None
+
+    # Fallback recalls if missing
+    if recall_neu is None:
+        recall_neu = 0.5
+    if recall_con is None:
+        recall_con = 0.5
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # latest manual label per (paragraph_id, sentence_id)
+    cur.execute(
+        """
+        WITH latest AS (
+          SELECT paragraph_id, sentence_id, MAX(id) AS max_id
+          FROM label_events
+          WHERE participant_id = ?
+            AND sentence_id IS NOT NULL
+            AND key_label IN ('neutral','confusion')
+          GROUP BY paragraph_id, sentence_id
+        )
+        SELECT le.paragraph_id, le.sentence_id, le.key_label
+        FROM label_events le
+        JOIN latest l ON le.id = l.max_id
+        """,
+        (pid,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No labeled sentences found for participant")
+
+    true_neu = [{"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]} for r in rows if (r["key_label"] or "").strip().lower() == "neutral"]
+    true_con = [{"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]} for r in rows if (r["key_label"] or "").strip().lower() == "confusion"]
+
+    # Choose how many to show from each TRUE class (simple: half/half)
+    n_total = max(1, int(n))
+    n_con = min(len(true_con), (n_total + 1) // 2)
+    n_neu = min(len(true_neu), n_total - n_con)
+
+    # If one side is short, fill with the other
+    while (n_con + n_neu) < n_total and len(true_con) > n_con:
+        n_con += 1
+    while (n_con + n_neu) < n_total and len(true_neu) > n_neu:
+        n_neu += 1
+
+    # Split by confusion-matrix-driven correctness rates
+    tp_count = int(round(recall_con * n_con))
+    fn_count = n_con - tp_count
+
+    tn_count = int(round(recall_neu * n_neu))
+    fp_count = n_neu - tn_count
+
+    random.shuffle(true_con)
+    random.shuffle(true_neu)
+
+    picked_tp = true_con[:tp_count]
+    picked_fn = true_con[tp_count:tp_count + fn_count]
+
+    picked_tn = true_neu[:tn_count]
+    picked_fp = true_neu[tn_count:tn_count + fp_count]
+
+    items = []
+
+    def add_items(picks, true_label, pred_label, bucket):
+        for s in picks:
+            items.append(
+                {
+                    "paragraph_id": int(s["paragraph_id"]) if s["paragraph_id"] is not None else None,
+                    "sentence_id": int(s["sentence_id"]) if s["sentence_id"] is not None else None,
+                    "true_label": true_label,
+                    "predicted_label": pred_label,
+                    "bucket": bucket,  # TP/FP/TN/FN
+                }
+            )
+
+    add_items(picked_tp, "confusion", "confusion", "TP")
+    add_items(picked_fn, "confusion", "neutral", "FN")
+    add_items(picked_tn, "neutral", "neutral", "TN")
+    add_items(picked_fp, "neutral", "confusion", "FP")
+
+    random.shuffle(items)
+
+    return SimulationItemsResp(
+        participant_id=pid,
+        n_requested=n_total,
+        n_returned=len(items),
+        confusion_matrix=cm,
+        recall_neutral=float(recall_neu),
+        recall_confusion=float(recall_con),
+        items=items,
+    )
+
+
+class SimulationFeedbackReq(BaseModel):
+    session_id: int
+    participant_id: str
+    paragraph_id: Optional[int] = None
+    sentence_id: Optional[int] = None
+    bucket: str  # TP/FP/TN/FN
+    true_label: str
+    predicted_label: str
+    feedback_text: str
+    t_feedback_ms: Optional[int] = None
+
+
+@app.post("/api/simulation/feedback")
+def save_simulation_feedback(req: SimulationFeedbackReq):
+    pid = (req.participant_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    payload = {
+        "kind": "simulation_feedback",
+        "bucket": req.bucket,
+        "true_label": req.true_label,
+        "predicted_label": req.predicted_label,
+        "paragraph_id": req.paragraph_id,
+        "sentence_id": req.sentence_id,
+        "feedback_text": req.feedback_text,
+        "t_feedback_ms": req.t_feedback_ms,
+    }
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # ensure session exists
+    cur.execute("SELECT id FROM sessions WHERE id=?", (req.session_id,))
+    if cur.fetchone() is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # ✅ store as label_events row WITHOUT sentence_id so it won't affect your EEG CSV join
+    cur.execute(
+        """
+        INSERT INTO label_events (
+          session_id, participant_id, paragraph_id, paragraph_type, sentence_id,
+          t_sentence_start, t_sentence_end, key_label, t_key_press
+        ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+        """,
+        (
+            req.session_id,
+            pid,
+            req.paragraph_id,
+            json.dumps(payload, ensure_ascii=False),
+            "simulation_feedback",
+            req.t_feedback_ms,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/participants/{participant_id}/simulation_feedback_csv")
+def download_sim_feedback_csv(participant_id: str):
+    pid = (participant_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT id, session_id, participant_id, paragraph_id, paragraph_type, t_key_press
+        FROM label_events
+        WHERE participant_id = ?
+          AND key_label = 'simulation_feedback'
+        ORDER BY id ASC
+        """,
+        (pid,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No simulation feedback found for participant")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    header = [
+        "id",
+        "session_id",
+        "participant_id",
+        "paragraph_id",
+        "sentence_id",
+        "bucket",
+        "true_label",
+        "predicted_label",
+        "t_feedback_ms",
+        "feedback_text",
+    ]
+    writer.writerow(header)
+
+    for r in rows:
+        blob = r["paragraph_type"] or ""
+        data = {}
+        try:
+            data = json.loads(blob) if blob else {}
+        except Exception:
+            data = {}
+
+        writer.writerow(
+            [
+                r["id"],
+                r["session_id"],
+                r["participant_id"],
+                r["paragraph_id"],
+                data.get("sentence_id", ""),
+                data.get("bucket", ""),
+                data.get("true_label", ""),
+                data.get("predicted_label", ""),
+                data.get("t_feedback_ms", r["t_key_press"] or ""),
+                data.get("feedback_text", ""),
+            ]
+        )
+
+    csv_bytes = output.getvalue().encode("utf-8")
+    output.close()
+
+    filename = f"participant_{pid}_simulation_feedback.csv"
     return StreamingResponse(
         io.BytesIO(csv_bytes),
         media_type="text/csv",
