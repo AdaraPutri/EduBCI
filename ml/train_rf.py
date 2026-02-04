@@ -156,7 +156,7 @@ def _bandpower_welch(x: np.ndarray, fs: float, fmin: float, fmax: float) -> floa
     mask = (freqs >= fmin) & (freqs <= fmax)
     if not np.any(mask):
         return float("nan")
-    return float(np.trapz(psd[mask], freqs[mask]))
+    return float(np.trapezoid(psd[mask], freqs[mask]))
 
 
 def _extract_features(window: np.ndarray, fs: float) -> Dict[str, float]:

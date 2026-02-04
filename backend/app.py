@@ -271,3 +271,107 @@ def finish_session(session_id: int):
     conn.commit()
     conn.close()
     return FinishSessionResp(ended_at_ms=ended_at)
+
+@app.get("/api/participants")
+def list_participants():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+          participant_id,
+          COUNT(*) AS session_count,
+          MAX(started_at_ms) AS last_started_at_ms,
+          MAX(ended_at_ms) AS last_ended_at_ms
+        FROM sessions
+        GROUP BY participant_id
+        ORDER BY last_started_at_ms DESC
+        """
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return {"participants": rows}
+
+
+@app.get("/api/participants/{participant_id}/csv")
+def download_participant_csv(participant_id: str):
+    pid = participant_id.strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="participant_id is required")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # Pull EEG rows and attach the latest label per (session_id, sentence_id)
+    cols = ["PO3", "PO4", "C3", "C4", "CP3", "CP4", "F5", "F6"]
+
+    cur.execute(
+        f"""
+        WITH latest_labels AS (
+          SELECT session_id, sentence_id, MAX(id) AS max_id
+          FROM label_events
+          WHERE participant_id = ?
+          GROUP BY session_id, sentence_id
+        )
+        SELECT
+          e.session_id,
+          e.participant_id,
+          e.t_app,
+          e.t_device,
+          e.paragraph_id,
+          e.sentence_id,
+          le.paragraph_type,
+          le.key_label,
+          le.t_sentence_start,
+          le.t_sentence_end,
+          le.t_key_press,
+          {", ".join([f"e.{c}" for c in cols])}
+        FROM eeg_rows e
+        LEFT JOIN latest_labels ll
+          ON ll.session_id = e.session_id AND ll.sentence_id = e.sentence_id
+        LEFT JOIN label_events le
+          ON le.id = ll.max_id
+        WHERE e.participant_id = ?
+        ORDER BY e.session_id ASC, e.t_app ASC
+        """,
+        (pid, pid),
+    )
+
+    data = cur.fetchall()
+    conn.close()
+
+    if not data:
+        raise HTTPException(status_code=404, detail="No data found for participant")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    header = [
+        "session_id",
+        "participant_id",
+        "t_app",
+        "t_device",
+        "paragraph_id",
+        "sentence_id",
+        "paragraph_type",
+        "key_label",
+        "t_sentence_start",
+        "t_sentence_end",
+        "t_key_press",
+        *cols,
+    ]
+    writer.writerow(header)
+
+    for r in data:
+        writer.writerow([r.get(h, "") for h in header])
+
+    csv_bytes = output.getvalue().encode("utf-8")
+    output.close()
+
+    filename = f"participant_{pid}.csv"
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

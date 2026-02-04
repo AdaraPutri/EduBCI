@@ -1,5 +1,3 @@
-// src/utils/storage.js
-
 const PARTICIPANTS_KEY = "edubci_participants_v1";
 const EVENTS_KEY = "edubci_label_events_v1";
 

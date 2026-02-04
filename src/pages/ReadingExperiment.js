@@ -36,35 +36,29 @@ export function ReadingExperiment() {
 
   // --- paragraph data ---
   const PARAGRAPHS = useMemo(() => {
-    // --- 1) parse participant shift (P001 -> 0, P002 -> 1, ... wraps mod 10) ---
     const digits = participantId.match(/\d+/)?.[0];
     const n = digits ? parseInt(digits, 10) : 1;
     const shift = ((n - 1) % 10 + 10) % 10;
 
-    // --- 2) group paragraphs by type ---
     const N = paragraphs.filter((p) => p.type === "neutral");
     const P = paragraphs.filter((p) => p.type === "partly_confusing");
     const F = paragraphs.filter((p) => p.type === "fully_confusing");
 
-    // safety fallback if counts aren't 10/10/10 for some reason
     if (N.length !== 10 || P.length !== 10 || F.length !== 10) {
       return buildParagraphsWithSentences(paragraphs);
     }
 
-    // --- 3) rotate helper ---
     const rotate = (arr, s) => arr.slice(s).concat(arr.slice(0, s));
     const Nr = rotate(N, shift);
     const Pr = rotate(P, shift);
     const Fr = rotate(F, shift);
 
-    // --- 4) fixed mixed type schedule (10 N, 10 P, 10 F) ---
     const schedule = [
       "P", "N", "P", "P", "N", "N", "F", "N", "N", "P",
       "P", "F", "P", "F", "F", "P", "N", "F", "N", "F",
       "P", "F", "P", "N", "P", "F", "N", "N", "F", "F",
     ];
 
-    // --- 5) build ordered list by walking schedule ---
     let iN = 0, iP = 0, iF = 0;
     const ordered = schedule.map((t) => {
       if (t === "N") return Nr[iN++];
@@ -83,24 +77,20 @@ export function ReadingExperiment() {
     current && current.sentences ? current.sentences[sentenceIndex] : null;
 
   const totalParagraphs = PARAGRAPHS.length;
-  const currentParagraphNumber = paragraphIndex + 1; // 1-based for display
+  const currentParagraphNumber = paragraphIndex + 1;
 
   // --- experiment state ---
   const [started, setStarted] = useState(false);
+  const [armed, setArmed] = useState(false); // ✅ new: session is ready, waiting for participant to press Start
   const [inBreak, setInBreak] = useState(false);
   const [finished, setFinished] = useState(false);
   const [sentenceStart, setSentenceStart] = useState(null);
 
-  // label events
   const [events, setEvents] = useState([]);
 
-  // EEG buffer (large -> ref)
   const eegRowsRef = useRef([]);
-
-  // Track "current paragraph/sentence" for EEG tagging without resubscribing
   const activeIdsRef = useRef({ paragraph_id: null, sentence_id: null });
 
-  // Track current session key so we can reset when URL changes (new session)
   const activeSessionKeyRef = useRef(null);
 
   useEffect(() => {
@@ -110,7 +100,8 @@ export function ReadingExperiment() {
     };
   }, [current?.paragraphId, currentSentence?.sentenceId]);
 
-  // Auto-start once we have participantId + sessionId AND headset is ready
+  // ✅ Arm the session once we have participantId + sessionId AND headset is ready.
+  // Do NOT start the task yet; wait for participant to press Start.
   useEffect(() => {
     const sid = sessionId || "";
     const key =
@@ -118,17 +109,19 @@ export function ReadingExperiment() {
 
     if (!key) {
       setStarted(false);
+      setArmed(false);
+      activeSessionKeyRef.current = null;
       return;
     }
     if (!deviceReady) {
       setStarted(false);
+      setArmed(false);
       return;
     }
 
     if (activeSessionKeyRef.current === key) return;
     activeSessionKeyRef.current = key;
 
-    // reset buffers/state (same as startExperiment, but without calling /start)
     eegRowsRef.current = [];
     setEvents([]);
     setParagraphIndex(0);
@@ -136,9 +129,17 @@ export function ReadingExperiment() {
     setInBreak(false);
     setFinished(false);
 
+    setSentenceStart(null);
+    setStarted(false);
+    setArmed(true);
+  }, [participantId, sessionId, deviceReady]);
+
+  function beginExperiment() {
+    if (!armed) return;
+    setArmed(false);
     setStarted(true);
     setSentenceStart(Date.now());
-  }, [participantId, sessionId, deviceReady]);
+  }
 
   // start timer when a new sentence appears
   useEffect(() => {
@@ -147,7 +148,7 @@ export function ReadingExperiment() {
     }
   }, [started, finished, inBreak, paragraphIndex, sentenceIndex, currentSentence]);
 
-  // --- EEG subscription (starts once experiment starts & device ready; stops when finished) ---
+  // --- EEG subscription ---
   useEffect(() => {
     if (!started || finished || !deviceReady) return;
 
@@ -159,7 +160,6 @@ export function ReadingExperiment() {
 
       const { paragraph_id, sentence_id } = activeIdsRef.current;
 
-      // Case 1: one sample across channels: [ch1, ch2, ...]
       if (Array.isArray(data) && typeof data[0] === "number") {
         const row = { t_app, t_device, paragraph_id, sentence_id };
         CHANNELS.forEach((ch, i) => (row[ch] = data[i] ?? null));
@@ -167,9 +167,7 @@ export function ReadingExperiment() {
         return;
       }
 
-      // Case 2: matrix
       if (Array.isArray(data) && Array.isArray(data[0])) {
-        // samples x channels
         if (data[0].length === CHANNELS.length) {
           data.forEach((sample) => {
             const row = { t_app: Date.now(), t_device, paragraph_id, sentence_id };
@@ -179,7 +177,6 @@ export function ReadingExperiment() {
           return;
         }
 
-        // channels x samples
         if (data.length === CHANNELS.length) {
           const nSamples = data[0].length;
           for (let s = 0; s < nSamples; s++) {
@@ -194,7 +191,7 @@ export function ReadingExperiment() {
     return () => sub.unsubscribe();
   }, [started, finished, deviceReady]);
 
-  // 2) periodic batch flush (every 1s while running)
+  // periodic batch flush
   useEffect(() => {
     if (!started || finished || !sessionId) return;
 
@@ -237,7 +234,9 @@ export function ReadingExperiment() {
       : Promise.resolve();
 
     flush.finally(() => {
-      fetch(`${API_BASE}/api/session/${sessionId}/finish`, { method: "POST" }).catch(() => {});
+      fetch(`${API_BASE}/api/session/${sessionId}/finish`, { method: "POST" }).catch(
+        () => {}
+      );
     });
   }, [finished, sessionId, participantId]);
 
@@ -254,7 +253,7 @@ export function ReadingExperiment() {
       t_sentence_start: sentenceStart,
       t_sentence_end: now,
       key_label: label,
-      t_key_press: now, // keep field name so CSV logic doesn't change
+      t_key_press: now,
     };
 
     if (sessionId) {
@@ -278,16 +277,13 @@ export function ReadingExperiment() {
       return;
     }
 
-    // If last sentence of last paragraph -> finish
     if (isLastParagraph) {
       setInBreak(false);
       setFinished(true);
       return;
     }
 
-    // move to next paragraph with a break
     setInBreak(true);
-    return;
   }
 
   function continueToNextParagraph() {
@@ -299,6 +295,56 @@ export function ReadingExperiment() {
   // --- UI ---
   if (!started) {
     const missingIds = !participantId.trim() || !sessionId;
+
+    // ✅ NEW: start screen before first paragraph
+    if (!missingIds && deviceReady && armed) {
+      return (
+        <div
+          style={{
+            maxWidth: 900,
+            margin: "80px auto",
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: "60vh",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <h3>Ready</h3>
+            <p style={{ fontSize: 25, marginTop: 8 }}>
+              You will read one paragraph at a time, revealed sentence-by-sentence. 
+              After each sentence, press the button "Neutral" if it was easy to understand, or "Confusing" if it was slightly to very difficult to understand.
+              <br />
+              <br />
+              There are no right or wrong answers, please label based on your immediate experience. Keep your focus on the text, try to minimize unnecessary movement, and continue until you reach the final thank-you screen.
+              <br />
+              <br />
+              When you’re ready, press Start to begin the reading task.
+            </p>
+          </div>
+
+          <div style={{ alignSelf: "flex-end" }}>
+            <button
+              onClick={beginExperiment}
+              style={{
+                fontSize: 25,
+                padding: "12px 14px",
+                borderRadius: 12,
+                border: "none",
+                cursor: "pointer",
+                background: "#1565c0",
+                color: "white",
+                fontWeight: 600,
+              }}
+            >
+              Start
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
         <h2>Reading Experiment</h2>
@@ -309,9 +355,7 @@ export function ReadingExperiment() {
           </p>
         ) : (
           <>
-            <p style={{ marginTop: 12 }}>
-              Waiting for headset connection...
-            </p>
+            <p style={{ marginTop: 12 }}>Waiting for headset connection...</p>
             <p style={{ color: "crimson", marginTop: 10 }}>
               Headset not ready yet.
               <br />
@@ -321,9 +365,7 @@ export function ReadingExperiment() {
         )}
 
         <div style={{ marginTop: 14 }}>
-          <button onClick={() => navigate("/admin/experiment")}>
-            Back to setup
-          </button>
+          <button onClick={() => navigate("/admin")}>Back to admin</button>
         </div>
       </div>
     );
@@ -368,7 +410,6 @@ export function ReadingExperiment() {
     );
   }
 
-  // Thank-you page after last sentence of last paragraph
   if (finished) {
     const eegCount = eegRowsRef.current.length;
     return (
@@ -382,9 +423,9 @@ export function ReadingExperiment() {
 
           {eegCount === 0 && (
             <p style={{ color: "crimson" }}>
-              No EEG data was recorded. This usually means the “raw” stream
-              didn’t emit data (device not actually streaming, wrong stream name,
-              or headset not fully connected).
+              No EEG data was recorded. This usually means the “raw” stream didn’t emit
+              data (device not actually streaming, wrong stream name, or headset not fully
+              connected).
             </p>
           )}
         </div>
@@ -392,7 +433,6 @@ export function ReadingExperiment() {
     );
   }
 
-  // Safety fallback (shouldn’t happen)
   if (!current || !currentSentence) {
     return (
       <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
@@ -403,7 +443,6 @@ export function ReadingExperiment() {
 
   return (
     <div style={{ maxWidth: 900, margin: "80px auto", padding: 16 }}>
-      {/* Progress header (uses paragraphIndex, NOT paragraphId) */}
       <div
         style={{
           display: "flex",
@@ -417,14 +456,7 @@ export function ReadingExperiment() {
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 18,
-          alignItems: "stretch",
-        }}
-      >
-        {/* Left: paragraph */}
+      <div style={{ display: "flex", gap: 18, alignItems: "stretch" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 25, lineHeight: 1.8 }}>
             {current.sentences.slice(0, sentenceIndex + 1).map((s) => {
@@ -447,23 +479,8 @@ export function ReadingExperiment() {
           </div>
         </div>
 
-        {/* Right: labeling buttons */}
-        <div
-          style={{
-            width: 190,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "flex-end",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
-              paddingBottom: 4,
-            }}
-          >
+        <div style={{ width: 190, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingBottom: 4 }}>
             <button
               onClick={() => labelCurrentSentence("neutral")}
               style={{
