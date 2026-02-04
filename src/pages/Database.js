@@ -1,4 +1,3 @@
-// src/pages/Database.js
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -38,9 +37,7 @@ export function Database() {
 
   async function downloadCsv(pid) {
     try {
-      const res = await fetch(
-        `${API_BASE}/api/participants/${encodeURIComponent(pid)}/csv`
-      );
+      const res = await fetch(`${API_BASE}/api/participants/${encodeURIComponent(pid)}/csv`);
       if (!res.ok) {
         const msg = await res.text();
         throw new Error(msg || `HTTP ${res.status}`);
@@ -52,6 +49,30 @@ export function Database() {
       const a = document.createElement("a");
       a.href = url;
       a.download = `participant_${pid}.csv`;
+      a.click();
+
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Download failed for ${pid}: ${e.message}`);
+    }
+  }
+
+  async function downloadSimFeedbackCsv(pid) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/participants/${encodeURIComponent(pid)}/simulation_feedback_csv`
+      );
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `participant_${pid}_simulation_feedback.csv`;
       a.click();
 
       window.URL.revokeObjectURL(url);
@@ -72,7 +93,6 @@ export function Database() {
         borderRadius: 12,
       }}
     >
-      {/* Header row: title (left) + back button (right) */}
       <div
         style={{
           display: "flex",
@@ -84,10 +104,7 @@ export function Database() {
       >
         <h2 style={{ margin: 0, color: "white" }}>Database</h2>
 
-        <button
-          onClick={() => navigate("/admin")}
-          style={outlineBtn}
-        >
+        <button onClick={() => navigate("/admin")} style={outlineBtn}>
           Back to Admin
         </button>
       </div>
@@ -97,16 +114,15 @@ export function Database() {
 
       {!loading && !err && (
         <div style={{ overflowX: "auto", marginTop: 16 }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", color: "white" }}
-          >
+          <table style={{ width: "100%", borderCollapse: "collapse", color: "white" }}>
             <thead>
               <tr>
                 <th style={th}>Participant ID</th>
                 <th style={th}>Sessions</th>
                 <th style={th}>Last Started</th>
                 <th style={th}>Last Ended</th>
-                <th style={th}>Export</th>
+                <th style={th}>EEG + Labels</th>
+                <th style={th}>Simulation Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -121,12 +137,17 @@ export function Database() {
                       Download CSV
                     </button>
                   </td>
+                  <td style={td}>
+                    <button onClick={() => downloadSimFeedbackCsv(p.participant_id)} style={outlineBtn}>
+                      Download CSV
+                    </button>
+                  </td>
                 </tr>
               ))}
 
               {participants.length === 0 && (
                 <tr>
-                  <td style={td} colSpan={5}>
+                  <td style={td} colSpan={6}>
                     No participants yet.
                   </td>
                 </tr>

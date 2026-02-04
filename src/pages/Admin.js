@@ -55,17 +55,32 @@ export function Admin() {
 
     setSimStarting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/train_rf`, {
+      // 1) Train model
+      const trainRes = await fetch(`${API_BASE}/api/train_rf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ participant_id: pid }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+      const trainData = await trainRes.json();
+      if (!trainRes.ok) throw new Error(trainData?.detail || `HTTP ${trainRes.status}`);
 
-      // Navigate to a placeholder page (you'll implement later)
-      navigate(`/admin/simulation?participantId=${encodeURIComponent(pid)}`);
+      // 2) Create a session so Simulation can store feedback later
+      const sessRes = await fetch(`${API_BASE}/api/session/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participant_id: pid }),
+      });
+
+      const sessData = await sessRes.json();
+      if (!sessRes.ok) throw new Error(sessData?.detail || `HTTP ${sessRes.status}`);
+
+      const sessionId = sessData.session_id;
+      navigate(
+        `/admin/simulation?participantId=${encodeURIComponent(pid)}&sessionId=${encodeURIComponent(
+          sessionId
+        )}`
+      );
     } catch (e) {
       console.log("Failed to start simulation", e);
       alert(`Simulation failed: ${e.message}`);
@@ -73,6 +88,7 @@ export function Admin() {
       setSimStarting(false);
     }
   }
+
 
   const outlineBtnStyle = {
     fontSize: 25,
