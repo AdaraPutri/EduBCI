@@ -33,6 +33,8 @@ export function Simulation() {
   const [q3, setQ3] = useState("");
   const [q4, setQ4] = useState("");
   const [q5, setQ5] = useState("");
+  const [q6, setQ6] = useState("");
+  const [q7, setQ7] = useState("");
 
   const [surveySaving, setSurveySaving] = useState(false);
   const [surveySubmitted, setSurveySubmitted] = useState(false);
@@ -170,6 +172,8 @@ export function Simulation() {
     const q1n = Number(q1);
     const q2n = Number(q2);
     const q3n = Number(q3);
+    const q6n = Number(q6);
+    const q7n = Number(q7);
 
     if (![1,2,3,4,5].includes(q1n) || ![1,2,3,4,5].includes(q2n) || ![1,2,3,4,5].includes(q3n)) {
       alert("Please answer Q1–Q3 with a rating from 1 to 5.");
@@ -189,6 +193,8 @@ export function Simulation() {
           q3_helpful_explanations_lecture: q3n,
           q4_other_software_reading: q4,
           q5_other_software_lecture: q5,
+          q6_accuracy_confusing_pct: q6n,
+          q7_accuracy_neutral_pct: q7n,
           t_survey_ms: Date.now(),
         }),
       });
@@ -241,14 +247,62 @@ export function Simulation() {
           color: "white",
         }}
       >
-        <div>
-          <h3>Simulation</h3>
-          <p style={{ fontSize: 22, lineHeight: 1.6, opacity: 0.95 }}>
-            Imagine you are studying for an exam by reading a textbook. In this simulation, the system automatically
-            highlights one sentence at a time based on EEG signals. After each highlighted sentence, type any thoughts
-            you have (e.g., whether it feels helpful, annoying, trustworthy, or distracting), then press Next.
-          </p>
+      <div>
+        <h3>Phase 2</h3>
+
+        <p style={{ fontSize: 22, lineHeight: 1.6, opacity: 0.95 }}>
+          Imagine you are studying for an exam by reading a textbook. In this phase, the system will
+          automatically highlight one sentence at a time based on EEG signals.
+          <br />
+          <br />
+          Only focus on the last sentence shown (the one that is highlighted). You can write additional notes on the side like you would when studying.
+          Press "Next" to proceed to the next paragraph.
+        </p>
+
+        <div style={{ marginTop: 14, fontSize: 22, lineHeight: 1.6, opacity: 0.95 }}>
+          <div style={{ marginBottom: 8 }}>
+            <b>Highlight examples:</b>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <span>Sentences the system detects as </span>
+              <b>confusing</b>
+              <span> look like this: </span>
+              <span
+                style={{
+                  background: "rgba(255, 235, 59, 0.5)",
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                }}
+              >
+                This is a confusing sentence.
+              </span>
+            </div>
+
+            <div>
+              <span>Sentences the system detects as </span>
+              <b>neutral</b>
+              <span> look like this: </span>
+              <span
+                style={{
+                  background: "transparent",
+                  border: "2px solid rgba(255,255,255,0.9)",
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                }}
+              >
+                This is a neutral sentence.
+              </span>
+            </div>
+          </div>
         </div>
+
+        <p style={{ fontSize: 22, lineHeight: 1.6, opacity: 0.95, marginTop: 18 }}>
+          When you’re ready, press "Start" to begin.
+        </p>
+      </div>
+
 
         <div style={{ alignSelf: "flex-end" }}>
           <button
@@ -326,36 +380,37 @@ export function Simulation() {
 
         <div style={card}>
           <div style={labelStyle}>
-            <b>Q1:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
-            How helpful would it be to have software automatically highlight sentences that you find confusing while you are reading on the computer?
+            <b>Q1:</b>
+            <br/> How helpful would it be to have software automatically highlight sentences that you find confusing while you are reading on the computer?
           </div>
           <select value={q1} onChange={(e) => setQ1(e.target.value)} style={selectStyle}>
-            <option value="">Select 1–5</option>
-            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="">Select 1–4</option>
+            <option value="1">1. Not at all helpful</option><option value="2">2. Slightly helpful</option><option value="3">3. Moderately helpful</option><option value="4">4. Very helpful</option>
           </select>
         </div>
 
         <div style={card}>
           <div style={labelStyle}>
-            <b>Q2:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
-            How helpful would it be to have software suggest clarifying questions to you during a class 
+            <b>Q2:</b>
+            <br/> How helpful would it be to have software suggest clarifying questions to you during a class 
             <br />
             (i.e., in-person lecture) when it detects that you have encountered confusing material?
           </div>
           <select value={q2} onChange={(e) => setQ2(e.target.value)} style={selectStyle}>
-            <option value="">Select 1–5</option>
-            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="">Select 1–4</option>
+            <option value="1">1. Not at all helpful</option><option value="2">2. Slightly helpful</option><option value="3">3. Moderately helpful</option><option value="4">4. Very helpful</option>
           </select>
         </div>
 
         <div style={card}>
           <div style={labelStyle}>
-            <b>Q3:</b> On a scale from 1 (Not at all helpful) to 5 (Extremely helpful): <br />
+            <b>Q3:</b>
+            <br/>
             How helpful would it be to have software that provides additional explanations when it detects that you find material confusing during a class (i.e., in-person lecture)?
           </div>
           <select value={q3} onChange={(e) => setQ3(e.target.value)} style={selectStyle}>
-            <option value="">Select 1–5</option>
-            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="">Select 1–4</option>
+            <option value="1">1. Not at all helpful</option><option value="2">2. Slightly helpful</option><option value="3">3. Moderately helpful</option><option value="4">4. Very helpful</option>
           </select>
         </div>
 
@@ -384,6 +439,53 @@ export function Simulation() {
             style={textareaStyle}
           />
         </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q6:</b>
+            <br />
+            What percentage of the time do you feel the system correctly detected
+            <b> confusing</b> sentences?
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={q6}
+              onChange={(e) => setQ6(e.target.value)}
+              placeholder="0–100"
+              style={{ ...selectStyle, flex: 1 }}
+            />
+            <span style={{ fontSize: 20, opacity: 0.9 }}>%</span>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={labelStyle}>
+            <b>Q7:</b>
+            <br />
+            What percentage of the time do you feel the system correctly detected
+            <b> neutral</b> sentences?
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={q7}
+              onChange={(e) => setQ7(e.target.value)}
+              placeholder="0–100"
+              style={{ ...selectStyle, flex: 1 }}
+            />
+            <span style={{ fontSize: 20, opacity: 0.9 }}>%</span>
+          </div>
+        </div>
+
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
           <button
@@ -421,23 +523,11 @@ export function Simulation() {
   const { paragraph, targetSentence, targetIndex } = resolved;
 
   const predIsConfusion = (item.predicted_label || "").toLowerCase() === "confusion";
-  const highlightBg = predIsConfusion ? "rgba(198, 40, 40, 0.45)" : "rgba(46, 125, 50, 0.45)";
-
-  const sideNote =
-    item.bucket === "FP"
-      ? "Note: This sentence is not actually confusing for you, but the system labels it as confusing."
-      : item.bucket === "FN"
-      ? "Note: This sentence is actually confusing for you, but the system detects it as neutral."
-      : "";
+  const highlightBg = predIsConfusion ? "rgba(255, 235, 59, 0.5)" : "transparent";
+  const highlightBorder = predIsConfusion ? "none" : "2px solid rgba(255,255,255,0.9)";
 
   return (
     <div style={{ maxWidth: 900, margin: "80px auto", padding: 16, color: "white" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, opacity: 0.85 }}>
-        <div>
-          Item {idx + 1} / {items.length} (Red = confusion, Green = neutral)
-        </div>
-      </div>
-
       <div style={{ display: "flex", gap: 18, alignItems: "stretch" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 25, lineHeight: 1.8 }}>
@@ -453,6 +543,7 @@ export function Simulation() {
                     key={s.sentenceId}
                     style={{
                       background: isTarget ? highlightBg : "transparent",
+                      border: isTarget ? highlightBorder : "none",
                       padding: isTarget ? "2px 4px" : 0,
                       borderRadius: isTarget ? 6 : 0,
                       marginRight: 6,
@@ -467,21 +558,6 @@ export function Simulation() {
         </div>
 
         <div style={{ width: 260, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 12, paddingBottom: 4}}>
-          {sideNote && (
-            <div
-              style={{
-                border: "1px solid rgba(255,255,255,0.2)",
-                background: "rgba(0,0,0,0.35)",
-                borderRadius: 12,
-                padding: 12,
-                fontSize: 14,
-                opacity: 0.95,
-              }}
-            >
-              {sideNote}
-            </div>
-          )}
-
           <div
             style={{
               border: "1px solid rgba(255,255,255,0.2)",
@@ -490,7 +566,7 @@ export function Simulation() {
               padding: 12,
             }}
           >
-            <div style={{ fontSize: 14, opacity: 0.85, marginBottom: 8 }}>Your feedback</div>
+            <div style={{ fontSize: 14, opacity: 0.85, marginBottom: 8 }}>Notes</div>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}

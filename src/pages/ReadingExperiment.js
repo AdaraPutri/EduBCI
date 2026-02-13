@@ -63,7 +63,7 @@ export function ReadingExperiment() {
     const ordered = schedule.map((t) => {
       if (t === "N") return Nr[iN++];
       if (t === "P") return Pr[iP++];
-      return Fr[iF++];
+      return Fr[iF++]; // e.g. participant 1 will have F[0] first, participant 2 will have F[1] first, etc.
     });
 
     return buildParagraphsWithSentences(ordered);
@@ -311,7 +311,7 @@ export function ReadingExperiment() {
           }}
         >
           <div>
-            <h3>Ready</h3>
+            <h3>Phase 1</h3>
             <p style={{ fontSize: 25, marginTop: 8 }}>
               You will read one paragraph at a time, revealed sentence-by-sentence. 
               After each sentence, press the button "Neutral" if it was easy to understand, or "Confusing" if it was slightly to very difficult to understand.
@@ -320,7 +320,7 @@ export function ReadingExperiment() {
               There are no right or wrong answers, please label based on your immediate experience. Keep your focus on the text, try to minimize unnecessary movement, and continue until you reach the final thank-you screen.
               <br />
               <br />
-              When you’re ready, press Start to begin the reading task.
+              When you’re ready, press "Start" to begin the reading task.
             </p>
           </div>
 
@@ -385,8 +385,8 @@ export function ReadingExperiment() {
         }}
       >
         <div>
-          <h3>Break</h3>
-          <p style={{ fontSize: 25, marginTop: 8 }}>Take as long as you need.</p>
+          <h3>Optional Break</h3>
+          <p style={{ fontSize: 25, marginTop: 8 }}>You have completed {currentParagraphNumber} of {totalParagraphs} paragraphs. If you'd like, feel free to take a one-minute break before continuing.</p>
         </div>
 
         <div style={{ alignSelf: "flex-end" }}>
@@ -415,20 +415,7 @@ export function ReadingExperiment() {
     return (
       <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
         <h2>Thank you for participating!</h2>
-        <p>Your session is complete.</p>
-
-        <div style={{ marginTop: 12 }}>
-          <p>Labels collected: {events.length}</p>
-          <p>EEG rows collected: {eegCount}</p>
-
-          {eegCount === 0 && (
-            <p style={{ color: "crimson" }}>
-              No EEG data was recorded. This usually means the “raw” stream didn’t emit
-              data (device not actually streaming, wrong stream name, or headset not fully
-              connected).
-            </p>
-          )}
-        </div>
+        <p>Please gently remove your headset and place it inside the box on your left. Let the researcher know you are finished with Phase 1 and return to your seat for Phase 2.</p>
       </div>
     );
   }
@@ -451,9 +438,6 @@ export function ReadingExperiment() {
           marginBottom: 14,
         }}
       >
-        <div style={{ fontSize: 18, color: "#666" }}>
-          Paragraph {currentParagraphNumber} / {totalParagraphs}
-        </div>
       </div>
 
       <div style={{ display: "flex", gap: 18, alignItems: "stretch" }}>
