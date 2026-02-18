@@ -761,11 +761,20 @@ def download_sim_feedback_csv(participant_id: str):
 class SimulationSurveyReq(BaseModel):
     session_id: int
     participant_id: str
-    q1_helpful_highlight_reading: int  # 1-5
-    q2_helpful_questions_lecture: int  # 1-5
-    q3_helpful_explanations_lecture: int  # 1-5
-    q4_other_software_reading: str = ""
-    q5_other_software_lecture: str = ""
+
+    # Q1–Q2 (accuracy Likert 1–5)
+    q1_accuracy_confusing: int  # 1-5
+    q2_accuracy_neutral: int    # 1-5
+
+    # Q3–Q5 (helpfulness Likert 1–4)
+    q3_helpful_highlight_reading: int  # 1-4
+    q4_helpful_questions_lecture: int  # 1-4
+    q5_helpful_explanations_lecture: int  # 1-4
+
+    # Q6–Q7 (free response)
+    q6_other_software_reading: str = ""
+    q7_other_software_lecture: str = ""
+
     t_survey_ms: Optional[int] = None
 
 
@@ -779,22 +788,32 @@ def save_simulation_survey(req: SimulationSurveyReq):
 
     # basic validation for 1-5
     for v, name in [
-        (req.q1_helpful_highlight_reading, "q1"),
-        (req.q2_helpful_questions_lecture, "q2"),
-        (req.q3_helpful_explanations_lecture, "q3"),
+        (req.q1_accuracy_confusing, "q1_accuracy_confusing"),
+        (req.q2_accuracy_neutral, "q2_accuracy_neutral"),
     ]:
-        if not isinstance(v, int) or v < 1 or v > 5:
-            raise HTTPException(status_code=400, detail=f"{name} must be an integer 1-5")
+        if v < 1 or v > 5:
+            raise HTTPException(status_code=400, detail=f"{name} must be 1-5")
+
+    for v, name in [
+        (req.q3_helpful_highlight_reading, "q3_helpful_highlight_reading"),
+        (req.q4_helpful_questions_lecture, "q4_helpful_questions_lecture"),
+        (req.q5_helpful_explanations_lecture, "q5_helpful_explanations_lecture"),
+    ]:
+        if v < 1 or v > 4:
+            raise HTTPException(status_code=400, detail=f"{name} must be 1-4")
 
     payload = {
         "kind": "simulation_survey",
-        "q1_helpful_highlight_reading": req.q1_helpful_highlight_reading,
-        "q2_helpful_questions_lecture": req.q2_helpful_questions_lecture,
-        "q3_helpful_explanations_lecture": req.q3_helpful_explanations_lecture,
-        "q4_other_software_reading": req.q4_other_software_reading,
-        "q5_other_software_lecture": req.q5_other_software_lecture,
+        "q1_accuracy_confusing": req.q1_accuracy_confusing,
+        "q2_accuracy_neutral": req.q2_accuracy_neutral,
+        "q3_helpful_highlight_reading": req.q3_helpful_highlight_reading,
+        "q4_helpful_questions_lecture": req.q4_helpful_questions_lecture,
+        "q5_helpful_explanations_lecture": req.q5_helpful_explanations_lecture,
+        "q6_other_software_reading": req.q6_other_software_reading,
+        "q7_other_software_lecture": req.q7_other_software_lecture,
         "t_survey_ms": req.t_survey_ms,
     }
+
 
     conn = get_conn()
     cur = conn.cursor()
@@ -859,11 +878,13 @@ def download_sim_survey_csv(participant_id: str):
         "session_id",
         "participant_id",
         "t_survey_ms",
-        "q1_helpful_highlight_reading",
-        "q2_helpful_questions_lecture",
-        "q3_helpful_explanations_lecture",
-        "q4_other_software_reading",
-        "q5_other_software_lecture",
+        "q1_accuracy_confusing",            # 1–5
+        "q2_accuracy_neutral",              # 1–5
+        "q3_helpful_highlight_reading",     # 1–4
+        "q4_helpful_questions_lecture",     # 1–4
+        "q5_helpful_explanations_lecture",  # 1–4
+        "q6_other_software_reading",        # text
+        "q7_other_software_lecture",        # text
     ]
     writer.writerow(header)
 
@@ -881,11 +902,13 @@ def download_sim_survey_csv(participant_id: str):
                 r["session_id"],
                 r["participant_id"],
                 data.get("t_survey_ms", r["t_key_press"] or ""),
-                data.get("q1_helpful_highlight_reading", ""),
-                data.get("q2_helpful_questions_lecture", ""),
-                data.get("q3_helpful_explanations_lecture", ""),
-                data.get("q4_other_software_reading", ""),
-                data.get("q5_other_software_lecture", ""),
+                data.get("q1_accuracy_confusing", ""),
+                data.get("q2_accuracy_neutral", ""),
+                data.get("q3_helpful_highlight_reading", ""),
+                data.get("q4_helpful_questions_lecture", ""),
+                data.get("q5_helpful_explanations_lecture", ""),
+                data.get("q6_other_software_reading", ""),
+                data.get("q7_other_software_lecture", ""),
             ]
         )
 

@@ -39,6 +39,14 @@ export function Simulation() {
   const [surveySaving, setSurveySaving] = useState(false);
   const [surveySubmitted, setSurveySubmitted] = useState(false);
 
+  const allSurveyAnswered =
+      q1 !== "" &&
+      q2 !== "" &&
+      q3 !== "" &&
+      q4 !== "" &&
+      q5 !== "" &&
+      q6.trim().length > 0 &&
+      q7.trim().length > 0;
 
   // Build the SAME paragraph order logic (so paragraph_id + sentence_id mapping stays consistent)
   const PARAGRAPHS = useMemo(() => {
@@ -90,7 +98,7 @@ export function Simulation() {
     let mounted = true;
     setLoading(true);
 
-    fetch(`${API_BASE}/api/simulation/items?participant_id=${encodeURIComponent(participantId)}&n=10`)
+    fetch(`${API_BASE}/api/simulation/items?participant_id=${encodeURIComponent(participantId)}&n=20`)
       .then(async (r) => {
         if (!r.ok) throw new Error(await r.text());
         return r.json();
@@ -198,15 +206,19 @@ export function Simulation() {
         body: JSON.stringify({
           session_id: sessionId,
           participant_id: participantId,
-          q1_accuracy_confusing_pct: q1n,
-          q2_accuracy_neutral_pct: q2n,
+
+          q1_accuracy_confusing: q1n,
+          q2_accuracy_neutral: q2n,
+
           q3_helpful_highlight_reading: q3n,
           q4_helpful_questions_lecture: q4n,
           q5_helpful_explanations_lecture: q5n,
+
           q6_other_software_reading: q6,
-          q7_accuracy_neutral_pct: q7,
+          q7_other_software_lecture: q7,
+
           t_survey_ms: Date.now(),
-        }),
+        })
       });
 
       if (!res.ok) {
@@ -221,9 +233,6 @@ export function Simulation() {
       setSurveySaving(false);
     }
   }
-
-
-  
 
   if (loading) {
     return (
@@ -272,7 +281,7 @@ export function Simulation() {
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                       <div>
-                        <blockquote><span>Sentences the system detects as</span>
+                        <blockquote><span>Sentences the system detects as </span>
                         <b>confusing</b>
                         <span> look like this: </span>
                         <span
@@ -354,14 +363,6 @@ export function Simulation() {
         </div>
       );
     }
-    const allSurveyAnswered =
-      q1 !== "" &&
-      q2 !== "" &&
-      q3 !== "" &&
-      q4 !== "" &&
-      q5 !== "" &&
-      q6.trim().length > 0 &&
-      q7.trim().length > 0;
 
     const selectStyle = {
       width: "100%",
