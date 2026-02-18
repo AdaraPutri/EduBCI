@@ -450,9 +450,17 @@ class SimulationItemsResp(BaseModel):
     n_requested: int
     n_returned: int
     confusion_matrix: Optional[List[List[int]]] = None
+
+    # keep these if you want
     recall_neutral: Optional[float] = None
     recall_confusion: Optional[float] = None
+
+    # NEW
+    f1_neutral: Optional[float] = None
+    f1_confusion: Optional[float] = None
+
     items: List[Dict[str, Any]] = Field(default_factory=list)
+
 
 
 @app.get("/api/simulation/items", response_model=SimulationItemsResp)
@@ -468,6 +476,9 @@ def simulation_items(participant_id: str, n: int = 10):
     cm = None
     recall_neu = None
     recall_con = None
+    f1_neu = None
+    f1_con = None
+
     if metrics_path.exists():
         try:
             metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -480,19 +491,31 @@ def simulation_items(participant_id: str, n: int = 10):
                 tn, fp = int(cm[0][0]), int(cm[0][1])
                 fn, tp = int(cm[1][0]), int(cm[1][1])
 
-                # recall(neutral) = TN/(TN+FP), recall(confusion) = TP/(TP+FN)
+                # (optional) keep recalls if you still want them
                 denom_neu = tn + fp
                 denom_con = tp + fn
                 recall_neu = (tn / denom_neu) if denom_neu else None
                 recall_con = (tp / denom_con) if denom_con else None
+
+                # ✅ F1 per class derived from the same confusion matrix
+                # F1(confusion) = 2TP / (2TP + FP + FN)
+                denom_f1_con = (2 * tp + fp + fn)
+                f1_con = (2 * tp / denom_f1_con) if denom_f1_con else None
+
+                # F1(neutral) treating "neutral" as the positive class:
+                # F1(neutral) = 2TN / (2TN + FP + FN)
+                denom_f1_neu = (2 * tn + fp + fn)
+                f1_neu = (2 * tn / denom_f1_neu) if denom_f1_neu else None
         except Exception:
             cm = None
 
+
     # Fallback recalls if missing
-    if recall_neu is None:
-        recall_neu = 0.5
-    if recall_con is None:
-        recall_con = 0.5
+    if f1_neu is None:
+        f1_neu = 0.5
+    if f1_con is None:
+        f1_con = 0.5
+
 
     conn = get_conn()
     cur = conn.cursor()
@@ -520,29 +543,41 @@ def simulation_items(participant_id: str, n: int = 10):
     if not rows:
         raise HTTPException(status_code=404, detail="No labeled sentences found for participant")
 
-    true_neu = [{"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]} for r in rows if (r["key_label"] or "").strip().lower() == "neutral"]
-    true_con = [{"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]} for r in rows if (r["key_label"] or "").strip().lower() == "confusion"]
+    true_neu = [
+        {"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]}
+        for r in rows
+        if (r["key_label"] or "").strip().lower() == "neutral"
+    ]
+    true_con = [
+        {"paragraph_id": r["paragraph_id"], "sentence_id": r["sentence_id"]}
+        for r in rows
+        if (r["key_label"] or "").strip().lower() == "confusion"
+    ]
 
-    # Choose how many to show from each TRUE class (simple: half/half)
-    n_total = max(1, int(n))
-    n_con = min(len(true_con), (n_total + 1) // 2)
-    n_neu = min(len(true_neu), n_total - n_con)
+    # ----- NEW: fixed 10 predicted-confusion + 10 predicted-neutral -----
+    n_total = max(2, int(n))
+    n_pred_conf = n_total // 2          # with n=20 => 10
+    n_pred_neu = n_total - n_pred_conf  # with n=20 => 10
 
-    # If one side is short, fill with the other
-    while (n_con + n_neu) < n_total and len(true_con) > n_con:
-        n_con += 1
-    while (n_con + n_neu) < n_total and len(true_neu) > n_neu:
-        n_neu += 1
+    # Use F1s as the “correctness rate” knobs
+    # predicted=confusion: TP vs FP
+    tp_target = int(round(f1_con * n_pred_conf))
+    fp_target = n_pred_conf - tp_target
 
-    # Split by confusion-matrix-driven correctness rates
-    tp_count = int(round(recall_con * n_con))
-    fn_count = n_con - tp_count
-
-    tn_count = int(round(recall_neu * n_neu))
-    fp_count = n_neu - tn_count
+    # predicted=neutral: TN vs FN
+    tn_target = int(round(f1_neu * n_pred_neu))
+    fn_target = n_pred_neu - tn_target
 
     random.shuffle(true_con)
     random.shuffle(true_neu)
+
+
+    # Take what we can from each pool
+    tp_count = min(tp_target, len(true_con))
+    fn_count = min(fn_target, max(0, len(true_con) - tp_count))  # remaining confusion pool
+
+    tn_count = min(tn_target, len(true_neu))
+    fp_count = min(fp_target, max(0, len(true_neu) - tn_count))  # remaining neutral pool
 
     picked_tp = true_con[:tp_count]
     picked_fn = true_con[tp_count:tp_count + fn_count]
@@ -565,21 +600,25 @@ def simulation_items(participant_id: str, n: int = 10):
             )
 
     add_items(picked_tp, "confusion", "confusion", "TP")
-    add_items(picked_fn, "confusion", "neutral", "FN")
-    add_items(picked_tn, "neutral", "neutral", "TN")
     add_items(picked_fp, "neutral", "confusion", "FP")
+    add_items(picked_tn, "neutral", "neutral", "TN")
+    add_items(picked_fn, "confusion", "neutral", "FN")
 
     random.shuffle(items)
+
 
     return SimulationItemsResp(
         participant_id=pid,
         n_requested=n_total,
         n_returned=len(items),
         confusion_matrix=cm,
-        recall_neutral=float(recall_neu),
-        recall_confusion=float(recall_con),
+        recall_neutral=float(recall_neu) if recall_neu is not None else None,
+        recall_confusion=float(recall_con) if recall_con is not None else None,
+        f1_neutral=float(f1_neu),
+        f1_confusion=float(f1_con),
         items=items,
     )
+
 
 
 class SimulationFeedbackReq(BaseModel):

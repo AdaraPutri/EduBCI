@@ -311,13 +311,17 @@ export function ReadingExperiment() {
           }}
         >
           <div>
+            <p style={{ fontSize: 25, marginTop: 8 }}>
+              Thank you for agreeing to participate in this experiment. There are two phases. We will now begin with Phase 1.
+            </p>
             <h3>Phase 1</h3>
             <p style={{ fontSize: 25, marginTop: 8 }}>
               You will read one paragraph at a time, revealed sentence-by-sentence. 
               After each sentence, press the button "Neutral" if it was easy to understand, or "Confusing" if it was slightly to very difficult to understand.
               <br />
               <br />
-              There are no right or wrong answers, please label based on your immediate experience. Keep your focus on the text, try to minimize unnecessary movement, and continue until you reach the final thank-you screen.
+              There are no right or wrong answers, please label based on your experience. Keep your focus on the text, try to minimize unnecessary movement, and continue until you reach the final thank-you screen.
+              If you need to take a break, you can do so between paragraphs.
               <br />
               <br />
               When you’re ready, press "Start" to begin the reading task.
@@ -414,8 +418,8 @@ export function ReadingExperiment() {
     const eegCount = eegRowsRef.current.length;
     return (
       <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
-        <h2>Thank you for participating!</h2>
-        <p>Please gently remove your headset and place it inside the box on your left. Let the researcher know you are finished with Phase 1 and return to your seat for Phase 2.</p>
+        <h2>Phase 1 is completed.</h2>
+        <p>Let the researcher know you are finished with Phase 1.</p>
       </div>
     );
   }
