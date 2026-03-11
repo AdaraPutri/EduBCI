@@ -433,7 +433,7 @@ def download_participant_csv(participant_id: str):
     writer.writerow(header)
 
     for r in data:
-        writer.writerow([r.get(h, "") for h in header])
+        writer.writerow([(r[h] if r[h] is not None else "") for h in header])
 
     csv_bytes = output.getvalue().encode("utf-8")
     output.close()
