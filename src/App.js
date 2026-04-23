@@ -1,46 +1,27 @@
+// src/App.js
 import React, { useEffect } from "react";
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  useNavigate,
-} from "react-router-dom";
-import { Neurosity } from "@neurosity/sdk";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 
-import { ProvideNeurosity } from "./services/neurosity";
+import { ProvideNeurosity, useNeurosity, neurosity } from "./services/neurosity";
 import { Devices } from "./pages/Devices";
 import { Loading } from "./components/Loading";
 import { Login } from "./pages/Login";
 import { Logout } from "./pages/Logout";
-import { Calm } from "./pages/Calm";
-import { useNeurosity } from "./services/neurosity";
-import { TextReader } from "./pages/TextReader";
-
-const neurosity = new Neurosity({
-  autoReconnect: true,
-  timesync: true,
-  deviceId: process.env.REACT_APP_DEVICE_ID,
-});
+import { ReadingExperiment } from "./pages/ReadingExperiment";
+import { Admin } from "./pages/Admin";
+import { Database } from "./pages/Database";
+import { Simulation } from "./pages/Simulation";
 
 function RequireAuth({ children }) {
   const { user, loadingUser } = useNeurosity();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loadingUser && !user) {
-      navigate("/login");
-    }
+    if (!loadingUser && !user) navigate("/login");
   }, [user, loadingUser, navigate]);
 
-  if (loadingUser) {
-    return <Loading />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
+  if (loadingUser) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -55,25 +36,13 @@ export function App() {
     <ProvideNeurosity>
       <BrowserRouter>
         <Routes>
-          <Route
-            path="/"
-            element={
-              <RequireAuth>
-                <Calm />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/devices"
-            element={
-              <RequireAuth>
-                <Devices />
-              </RequireAuth>
-            }
-          />
+          <Route path="/" element={<Navigate to="/admin" replace />} />
+          <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
+          <Route path="/participant" element={<RequireAuth><ReadingExperiment /></RequireAuth>} />
+          <Route path="/admin/simulation" element={<RequireAuth><Simulation /></RequireAuth>} />
           <Route path="/login" element={<Login />} />
           <Route path="/logout" element={<Logout />} />
-          <Route path="/textreader" element={<TextReader />} />
+          <Route path="/admin/database" element={<RequireAuth><Database /></RequireAuth>} />
         </Routes>
       </BrowserRouter>
     </ProvideNeurosity>

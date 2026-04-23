@@ -5,6 +5,8 @@ import { useLocalStorage } from "../hooks/useLocalStorage";
 
 export const neurosity = new Neurosity({
   autoSelectDevice: false,
+  autoReconnect: true,
+  timesync: true,
 });
 
 const initialState = {
@@ -89,9 +91,7 @@ function useProvideNeurosity() {
   ]);
 
   useEffect(() => {
-    if (!selectedDevice?.deviceId) {
-      return;
-    }
+    if (!selectedDevice?.deviceId) return;
 
     const statusSub = neurosity.status().subscribe((status) => {
       if (JSON.stringify(status) !== JSON.stringify(state.status)) {
@@ -99,9 +99,7 @@ function useProvideNeurosity() {
       }
     });
 
-    return () => {
-      statusSub.unsubscribe();
-    };
+    return () => statusSub.unsubscribe();
   }, [selectedDevice?.deviceId, state.status]);
 
   useEffect(() => {
@@ -115,9 +113,7 @@ function useProvideNeurosity() {
       }));
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -131,9 +127,7 @@ function useProvideNeurosity() {
       }
     });
 
-    return () => {
-      sub.unsubscribe();
-    };
+    return () => sub.unsubscribe();
   }, [
     setSelectedDevice,
     setLastSelectedDeviceId,
@@ -160,3 +154,4 @@ function useProvideNeurosity() {
     getDeviceList,
   };
 }
+
